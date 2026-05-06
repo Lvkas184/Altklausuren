@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Altklausuren</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Referat Altklausuren</p>
+          <h1>PDF-Sammlungen pflegen</h1>
+        </div>
+        <div class="top-actions">
+          {% if auth_enabled %}
+            <div class="user-pill">
+              <strong>{{ current_user.name }}</strong>
+              <span>{{ current_user.role }}</span>
+              <a href="{{ url_for('logout') }}">Abmelden</a>
+            </div>
+          {% endif %}
+          <div class="stats">
+            <div class="stat">
+              <span>{{ subjects|length }}</span>
+              <small>Faecher</small>
+            </div>
+            <div class="stat">
+              <span>{{ ready_count }}</span>
+              <small>druckbereit</small>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <p class="message {{ category }}">{{ message }}</p>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <section class="workspace">
+        <div class="panel upload-panel">
+          <h2>Neue PDF einordnen</h2>
+          <form action="{{ url_for('create_submission') }}" method="post" enctype="multipart/form-data" class="stack">
+            <label>
+              Fach
+              <select name="subject_id" required>
+                <option value="">Bitte waehlen</option>
+                {% for subject in subjects %}
+                  <option value="{{ subject.id }}">{{ subject.title }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label class="dropzone" id="dropzone">
+              <input id="pdf" name="pdf" type="file" accept="application/pdf" required>
+              <span id="drop-label">PDF hier ablegen oder auswaehlen</span>
+              <small>Maximal {{ max_upload_mb }} MB</small>
+            </label>
+
+            <div class="grid two">
+              <label>
+                Typ
+                <select name="kind">
+                  <option>Gedaechtnisprotokoll</option>
+                  <option>Altklausur</option>
+                  <option>Loesungsskizze</option>
+                </select>
+              </label>
+              <label>
+                Semester
+                <input name="term" placeholder="z. B. WiSe 2025/26">
+              </label>
+            </div>
+
+            <label>
+              Klausurdatum
+              <input name="exam_date" type="date">
+            </label>
+
+            <label>
+              Notiz
+              <textarea name="notes" rows="3" placeholder="z. B. ohne Loesungen, Nachklausur, Dozent:in"></textarea>
+            </label>
+
+            <label class="check">
+              <input name="strip_uploaded_cover" type="checkbox" checked>
+              <span>Deckblatt der hochgeladenen PDF entfernen</span>
+            </label>
+
+            <button type="submit">Sammlung aktualisieren</button>
+          </form>
+        </div>
+
+        <aside class="side-stack">
+          <section class="panel">
+            <h2>Fach anlegen</h2>
+            <form action="{{ url_for('create_subject') }}" method="post" class="stack compact">
+              <label>
+                Fachname
+                <input name="title" required placeholder="z. B. Mathematik 1">
+              </label>
+              <label>
+                Modulcode
+                <input name="code" placeholder="optional">
+              </label>
+              <button type="submit" class="secondary">Anlegen</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <h2>Google Drive</h2>
+            <form action="{{ url_for('update_drive_config') }}" method="post" class="stack compact">
+              <label>
+                Lokaler Drive-Ordner
+                <input name="local_root_path" value="{{ drive_config.local_root_path or '' }}" placeholder="/Users/.../GoogleDrive-.../Altklausuren">
+              </label>
+              <button type="submit" class="secondary">Lokalen Ordner speichern</button>
+            </form>
+            <form action="{{ url_for('sync_local_drive') }}" method="post" class="stack compact drive-sync-form">
+              <input type="hidden" name="local_root_path" value="{{ drive_config.local_root_path or '' }}">
+              <button type="submit">Lokalen Drive importieren</button>
+            </form>
+            {% if drive_config.last_local_sync_at %}
+              <p class="sync-meta">{{ drive_config.last_local_file_count }} lokale PDFs zuletzt synchronisiert am {{ drive_config.last_local_sync_at }}</p>
+            {% else %}
+              <p class="sync-meta">Ohne Google Cloud: Google Drive for Desktop installieren, Ordnerpfad eintragen, importieren.</p>
+            {% endif %}
+
+            <div class="divider"></div>
+
+            <form action="{{ url_for('update_drive_config') }}" method="post" class="stack compact">
+              <label>
+                API-Ordner-URL
+                <input name="root_url" value="{{ drive_config.root_url or 'https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA' }}" placeholder="Google-Drive-Ordner">
+              </label>
+              <button type="submit" class="secondary">API-Ordner speichern</button>
+            </form>
+            <form action="{{ url_for('sync_drive') }}" method="post" class="stack compact drive-sync-form">
+              <input type="hidden" name="root_url" value="{{ drive_config.root_url or 'https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA' }}">
+              <button type="submit">API-Sync starten</button>
+            </form>
+            {% if drive_config.last_sync_at %}
+              <p class="sync-meta">{{ drive_config.last_file_count }} API-PDFs zuletzt synchronisiert am {{ drive_config.last_sync_at }}</p>
+            {% else %}
+              <p class="sync-meta">API-Sync braucht vorher OAuth und Google Cloud.</p>
+            {% endif %}
+          </section>
+        </aside>
+      </section>
+
+      <section class="subjects">
+        <div class="section-head">
+          <div>
+            <h2>Klausurenstand</h2>
+            <p>Suche nach Fach, Modul, Semester, Datum oder Notiz.</p>
+          </div>
+          <label class="search">
+            <span>Suche</span>
+            <input id="catalog-search" type="search" placeholder="z. B. Mathematik 1, WiSe, Nachklausur">
+          </label>
+        </div>
+        {% if subjects %}
+          <div class="catalog-layout">
+            <div class="subject-list" id="subject-list">
+              {% for subject in subjects %}
+                {% set latest = subject.latest_submission %}
+                <article class="subject-card"
+                  data-title="{{ subject.title|lower }}"
+                  data-search="{{ (subject.title ~ ' ' ~ subject.code ~ ' ' ~ (latest.kind if latest else '') ~ ' ' ~ (latest.term if latest else '') ~ ' ' ~ (latest.exam_date if latest else '') ~ ' ' ~ (latest.notes if latest else ''))|lower }}">
+                  <div>
+                    <div class="card-title">
+                      <h3>{{ subject.title }}</h3>
+                      {% if subject.has_current_pdf %}
+                        <span class="badge ready">druckbereit</span>
+                      {% else %}
+                        <span class="badge muted">leer</span>
+                      {% endif %}
+                    </div>
+                    <p>{{ subject.submissions|length }} Eintraege, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
+                    {% if latest %}
+                      <p class="latest">{{ latest.kind }}{% if latest.term %} - {{ latest.term }}{% endif %}{% if latest.exam_date %} - {{ latest.exam_date }}{% endif %}</p>
+                    {% elif subject.drive %}
+                      <p class="latest">Drive - {{ subject.drive.folder_path }} - {{ subject.drive.name }}</p>
+                    {% endif %}
+                  </div>
+                  <div class="card-actions">
+                    {% if subject.has_current_pdf %}
+                      <button type="button"
+                        class="preview-button"
+                        data-preview-url="{{ url_for('preview_pdf', subject_id=subject.id) }}"
+                        data-download-url="{{ url_for('current_pdf', subject_id=subject.id) }}"
+                        data-preview-title="{{ subject.title }}">
+                        Vorschau
+                      </button>
+                      <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+                    {% else %}
+                      <span class="empty">kein PDF</span>
+                    {% endif %}
+                  </div>
+                </article>
+              {% endfor %}
+              <p class="blank hidden" id="no-results">Keine Sammlung passt zur Suche.</p>
+            </div>
+
+            <aside class="preview-pane" id="preview-pane">
+              {% set first_ready = subjects|selectattr("has_current_pdf")|first %}
+              {% if first_ready %}
+                <div class="preview-head">
+                  <div>
+                    <p class="eyebrow">Vorschau</p>
+                    <h3 id="preview-title">{{ first_ready.title }}</h3>
+                  </div>
+                  <a id="preview-download" href="{{ url_for('current_pdf', subject_id=first_ready.id) }}">PDF laden</a>
+                </div>
+                <iframe id="preview-frame" src="{{ url_for('preview_pdf', subject_id=first_ready.id) }}" title="PDF-Vorschau"></iframe>
+              {% else %}
+                <div class="preview-empty">
+                  <p class="eyebrow">Vorschau</p>
+                  <h3>Noch keine druckbereite Sammlung</h3>
+                  <p>Nach dem ersten Upload erscheint hier die PDF so, wie sie spaeter ausgegeben werden kann.</p>
+                </div>
+              {% endif %}
+            </aside>
+          </div>
+        {% else %}
+          <p class="blank">Lege zuerst ein Fach an, danach kannst du die erste PDF einordnen.</p>
+        {% endif %}
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
