@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ subject.title }} drucken</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="print-body">
+    <header class="print-toolbar">
+      <div>
+        <p class="eyebrow">Druckansicht</p>
+        <h1>{{ subject.title }}</h1>
+      </div>
+      <nav class="top-actions">
+        <a class="nav-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">Zurueck</a>
+        <a class="nav-link" href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+        <button class="primary-link print-button" type="button" onclick="window.print()">Drucken</button>
+      </nav>
+    </header>
+    <main class="print-preview">
+      <iframe src="{{ url_for('preview_pdf', subject_id=subject.id) }}" title="PDF-Druckvorschau {{ subject.title }}"></iframe>
+    </main>
+  </body>
+</html>

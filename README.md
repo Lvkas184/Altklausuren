@@ -21,10 +21,10 @@ Die PDF-Abhaengigkeiten liegen lokal in `.vendor`. Falls sie fehlen:
 python3 -m pip install --target .vendor pypdf reportlab
 ```
 
-Dann die App starten:
+Dann die App starten. Auf diesem Rechner sollte die Anaconda-Python-Version verwendet werden, weil `.vendor` damit installiert wurde:
 
 ```bash
-python3 app.py
+/opt/anaconda3/bin/python3 app.py
 ```
 
 Danach im Browser oeffnen:
@@ -77,7 +77,7 @@ Einmaliges Setup:
 python3 drive_tools.py authorize
 ```
 
-Danach entweder in der App auf `Drive synchronisieren` klicken oder per Terminal starten:
+Danach entweder in der App auf `API-Sync starten` klicken oder per Terminal starten:
 
 ```bash
 python3 drive_tools.py sync "https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA"
@@ -90,6 +90,45 @@ Der Sync schreibt:
 - `data/subjects/<fach>/current.pdf`: aktuelle druckbare PDF je Sammlung
 
 Wenn der Sync meldet, dass der Ordner nicht gelesen werden kann, ist fast immer der falsche Google-Account autorisiert oder der Drive-Ordner ist nicht mit diesem Account geteilt.
+
+### Dauerhafter Drive-Sync
+
+Fuer den Serverbetrieb kann statt OAuth ein Servicekonto verwendet werden. Lege die Servicekonto-Datei ab als:
+
+```text
+data/credentials/service_account.json
+```
+
+Alternativ kann der Pfad gesetzt werden:
+
+```bash
+SERVICE_ACCOUNT_FILE=/pfad/zur/service_account.json
+```
+
+Nach einem initialen API-Import merkt sich jedes Fach seine Drive-Datei. Wenn in der App eine neue Sammlung erzeugt wird, prueft die App zuerst, ob die Drive-Datei noch dem bekannten Stand entspricht. Nur dann wird die Drive-Datei archiviert und durch die neue App-Version ersetzt. Bei einer direkten Drive-Aenderung wird nicht blind ueberschrieben, sondern der Status `conflict` gesetzt.
+
+Worker fuer regelmaessige Drive-Pruefung:
+
+```bash
+python3 drive_tools.py poll
+```
+
+Weitere Werkzeuge:
+
+```bash
+python3 drive_tools.py push <fach-id>
+python3 drive_tools.py push <fach-id> --force
+python3 drive_tools.py accept-drive <fach-id>
+```
+
+Statuswerte in der Uebersicht:
+
+- `synced`: App und Drive sind synchron
+- `uploading`: Drive-Upload laeuft bzw. wurde gestartet
+- `drive_new`: eine Drive-Version wurde lokal uebernommen
+- `conflict`: Drive hat sich geaendert und wurde nicht ueberschrieben
+- `error`: letzter Drive-Vorgang ist fehlgeschlagen
+- `unmapped`: Fach ist noch keiner Drive-Datei zugeordnet
 
 ## Zugriffsschutz fuer den Serverbetrieb
 
@@ -129,4 +168,4 @@ Die App schreibt nach `data/`:
 - `data/subjects/<fach>/archive/`: Backups alter Sammlungen
 - `data/subjects/<fach>/exports/`: erzeugte Versionen
 
-Der naechste sinnvolle Schritt ist eine Drive-Synchronisierung: `current.pdf` lokal erzeugen, danach automatisiert in den passenden Google-Drive-Ordner hochladen bzw. ersetzen.
+Der Drive-Sync ist so gebaut, dass Drive-Aenderungen nicht hart geloescht werden: vor einem App-Upload wird die bisherige Drive-Datei in einen Archivordner kopiert, sofern Drive-Schreibrechte vorhanden sind.

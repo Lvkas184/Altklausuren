@@ -13,12 +13,7 @@ VENDOR = Path(__file__).resolve().parent / ".vendor"
 if VENDOR.exists():
     sys.path.insert(0, str(VENDOR))
 
-import requests
 from flask import Request, session, url_for
-from google.auth.transport.requests import Request as GoogleRequest
-from google.oauth2 import id_token
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 
 
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -96,6 +91,10 @@ def build_login_url(config: AuthConfig) -> str:
 
 
 def handle_callback(config: AuthConfig, request: Request) -> dict:
+    import requests
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import id_token
+
     config.validate()
     expected_state = session.get("oauth_state")
     if not expected_state or request.args.get("state") != expected_state:
@@ -143,6 +142,9 @@ def handle_callback(config: AuthConfig, request: Request) -> dict:
 
 
 def check_drive_access(access_token: str, folder_id: str) -> dict:
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+
     credentials = Credentials(token=access_token)
     service = build("drive", "v3", credentials=credentials, cache_discovery=False)
     try:

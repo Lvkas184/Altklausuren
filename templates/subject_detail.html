@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ subject.title }} - Altklausuren</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell detail-shell">
+      <header class="topbar app-header">
+        <div class="brand-lockup">
+          <div class="brand-mark">Forum<br>WI</div>
+          <div>
+            <p class="eyebrow">Referat Altklausuren</p>
+            <h1>{{ subject.title }}</h1>
+            <p class="subtitle">{{ subject.submissions|length }} Eintraege, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="nav-link" href="{{ url_for('index') }}">Uebersicht</a>
+          {% if subject.has_current_pdf %}
+            <a class="nav-link primary-link" href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
+            <a class="nav-link" href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+          {% endif %}
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <p class="message {{ category }}">{{ message }}</p>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <section class="detail-grid">
+        <section class="detail-main">
+          <div class="panel detail-preview">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Vorschau</p>
+                <h2>Aktuelle Sammlung</h2>
+              </div>
+              {% if can_edit %}
+                <form action="{{ url_for('regenerate_subject', subject_id=subject.id) }}" method="post">
+                  <button class="secondary small-action" type="submit">Neu erzeugen</button>
+                </form>
+              {% endif %}
+            </div>
+            {% if subject.has_current_pdf %}
+              <iframe src="{{ url_for('preview_pdf', subject_id=subject.id) }}" title="PDF-Vorschau {{ subject.title }}"></iframe>
+            {% else %}
+              <div class="preview-empty">
+                <p class="eyebrow">Noch kein PDF</p>
+                <h3>Diese Sammlung ist leer.</h3>
+                <p>Nach Import oder Upload erscheint hier die druckbare Version.</p>
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Deckblatt</p>
+                <h2>Klausuren-Tabelle</h2>
+              </div>
+            </div>
+
+            {% if subject.submissions %}
+              <div class="submission-list">
+                {% for submission in subject.submissions %}
+                  <article class="submission-row">
+                    <form action="{{ url_for('update_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="submission-form">
+                      <div class="grid four">
+                        <label>
+                          Datum
+                          <input name="exam_date" type="date" value="{{ submission.exam_date }}" {% if not can_edit %}disabled{% endif %}>
+                        </label>
+                        <label>
+                          Semester
+                          <input name="term" value="{{ submission.term }}" placeholder="WiSe 2025/26" {% if not can_edit %}disabled{% endif %}>
+                        </label>
+                        <label>
+                          Dozent
+                          <input name="instructor" value="{{ submission.instructor }}" {% if not can_edit %}disabled{% endif %}>
+                        </label>
+                        <label>
+                          Loesung
+                          <select name="solution" {% if not can_edit %}disabled{% endif %}>
+                            <option value="" {% if not submission.solution %}selected{% endif %}>unbekannt</option>
+                            <option value="Ja" {% if submission.solution == 'Ja' %}selected{% endif %}>Ja</option>
+                            <option value="Nein" {% if submission.solution == 'Nein' %}selected{% endif %}>Nein</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div class="grid three">
+                        <label>
+                          Typ
+                          <input name="kind" value="{{ submission.kind }}" {% if not can_edit %}disabled{% endif %}>
+                        </label>
+                        <label>
+                          Notiz
+                          <input name="notes" value="{{ submission.notes }}" {% if not can_edit %}disabled{% endif %}>
+                        </label>
+                        <label>
+                          Position
+                          <input name="sort_order" type="number" min="1" value="{{ submission.sort_order }}" {% if not can_edit %}disabled{% endif %}>
+                        </label>
+                      </div>
+                      <p class="sync-meta">
+                        {{ submission.original_filename }} - {{ submission.added_pages }} Seiten
+                        {% if submission.strip_uploaded_cover %}- Upload-Deckblatt entfernt{% endif %}
+                        {% if submission.collection_import %}- DRUCK-Import{% endif %}
+                      </p>
+                      {% if can_edit %}
+                        <div class="row-actions">
+                          <button type="submit" class="small-action">Speichern</button>
+                        </div>
+                      {% endif %}
+                    </form>
+                    {% if can_edit %}
+                      <form action="{{ url_for('delete_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="delete-form">
+                        <button type="submit" class="danger small-action">Loeschen</button>
+                      </form>
+                    {% endif %}
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="blank">Noch keine Deckblattdaten vorhanden.</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <aside class="detail-side side-stack">
+          <section class="panel">
+            <h2>Drive-Sync</h2>
+            {% set sync = subject.drive_sync or {} %}
+            <p class="status-line">
+              <span class="badge sync {{ sync.sync_status or 'unmapped' }}">{{ sync.sync_status or 'nicht verknuepft' }}</span>
+            </p>
+            {% if sync.drive_filename %}
+              <p class="sync-meta">{{ sync.drive_filename }}</p>
+            {% endif %}
+            {% if sync.last_synced_at %}
+              <p class="sync-meta">Zuletzt synchronisiert: {{ sync.last_synced_at }}</p>
+            {% endif %}
+            {% if sync.last_sync_error %}
+              <p class="sync-error">{{ sync.last_sync_error }}</p>
+            {% endif %}
+            {% if can_admin %}
+              <div class="stack compact">
+                <form action="{{ url_for('check_subject_drive_version', subject_id=subject.id) }}" method="post">
+                  <button class="secondary" type="submit">Sync pruefen</button>
+                </form>
+                <form action="{{ url_for('accept_subject_drive_version', subject_id=subject.id) }}" method="post">
+                  <button class="secondary" type="submit">Drive-Version uebernehmen</button>
+                </form>
+                <form action="{{ url_for('force_push_subject_drive_version', subject_id=subject.id) }}" method="post">
+                  <button class="danger" type="submit">App-Version hochladen</button>
+                </form>
+                <form action="{{ url_for('dismiss_subject_drive_conflict', subject_id=subject.id) }}" method="post">
+                  <button class="secondary" type="submit">Konflikt verwerfen</button>
+                </form>
+              </div>
+            {% endif %}
+          </section>
+
+          {% if can_edit %}
+            <section class="panel">
+              <h2>Neue PDF hinzufuegen</h2>
+              <form action="{{ url_for('create_subject_submission', subject_id=subject.id) }}" method="post" enctype="multipart/form-data" class="stack compact">
+                <label class="dropzone compact-dropzone">
+                  <input name="pdf" type="file" accept="application/pdf" required>
+                  <span>PDF auswaehlen</span>
+                  <small>Maximal {{ max_upload_mb }} MB</small>
+                </label>
+                <label>
+                  Typ
+                  <select name="kind">
+                    <option>Gedaechtnisprotokoll</option>
+                    <option>Altklausur</option>
+                    <option>Loesungsskizze</option>
+                  </select>
+                </label>
+                <label>
+                  Semester
+                  <input name="term" placeholder="z. B. WiSe 2025/26">
+                </label>
+                <label>
+                  Klausurdatum
+                  <input name="exam_date" type="date">
+                </label>
+                <label>
+                  Dozent
+                  <input name="instructor">
+                </label>
+                <label>
+                  Loesung
+                  <select name="solution">
+                    <option value="">unbekannt</option>
+                    <option value="Ja">Ja</option>
+                    <option value="Nein">Nein</option>
+                  </select>
+                </label>
+                <label>
+                  Notiz
+                  <textarea name="notes" rows="2"></textarea>
+                </label>
+                <label class="check">
+                  <input name="strip_uploaded_cover" type="checkbox">
+                  <span>Deckblatt der hochgeladenen PDF entfernen</span>
+                </label>
+                <button type="submit">Hinzufuegen</button>
+              </form>
+            </section>
+          {% endif %}
+
+          {% if can_admin %}
+            <section class="panel">
+              <h2>DRUCK-Sammlung importieren</h2>
+              <form action="{{ url_for('import_subject_collection', subject_id=subject.id) }}" method="post" enctype="multipart/form-data" class="stack compact">
+                <label>
+                  Bestehende Sammlung
+                  <input name="pdf" type="file" accept="application/pdf" required>
+                </label>
+                <label>
+                  Drive File-ID
+                  <input name="drive_file_id" placeholder="optional">
+                </label>
+                <label>
+                  Drive Ordner-ID
+                  <input name="drive_folder_id" placeholder="optional">
+                </label>
+                <label>
+                  Drive Dateiname
+                  <input name="drive_filename" placeholder="DRUCK_....pdf">
+                </label>
+                <button class="secondary" type="submit">Vollstaendig importieren</button>
+              </form>
+            </section>
+          {% endif %}
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

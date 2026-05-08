@@ -8,10 +8,13 @@
   </head>
   <body>
     <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Referat Altklausuren</p>
-          <h1>PDF-Sammlungen pflegen</h1>
+      <header class="topbar app-header">
+        <div class="brand-lockup">
+          <div class="brand-mark">Forum<br>WI</div>
+          <div>
+            <p class="eyebrow">Referat Altklausuren</p>
+            <h1>PDF-Sammlungen pflegen</h1>
+          </div>
         </div>
         <div class="top-actions">
           {% if auth_enabled %}
@@ -45,6 +48,7 @@
       {% endwith %}
 
       <section class="workspace">
+        {% if can_edit %}
         <div class="panel upload-panel">
           <h2>Neue PDF einordnen</h2>
           <form action="{{ url_for('create_submission') }}" method="post" enctype="multipart/form-data" class="stack">
@@ -84,21 +88,38 @@
               <input name="exam_date" type="date">
             </label>
 
+            <div class="grid two">
+              <label>
+                Dozent
+                <input name="instructor" placeholder="z. B. Weiss">
+              </label>
+              <label>
+                Loesung
+                <select name="solution">
+                  <option value="">unbekannt</option>
+                  <option value="Ja">Ja</option>
+                  <option value="Nein">Nein</option>
+                </select>
+              </label>
+            </div>
+
             <label>
               Notiz
               <textarea name="notes" rows="3" placeholder="z. B. ohne Loesungen, Nachklausur, Dozent:in"></textarea>
             </label>
 
             <label class="check">
-              <input name="strip_uploaded_cover" type="checkbox" checked>
+              <input name="strip_uploaded_cover" type="checkbox">
               <span>Deckblatt der hochgeladenen PDF entfernen</span>
             </label>
 
             <button type="submit">Sammlung aktualisieren</button>
           </form>
         </div>
+        {% endif %}
 
         <aside class="side-stack">
+          {% if can_edit %}
           <section class="panel">
             <h2>Fach anlegen</h2>
             <form action="{{ url_for('create_subject') }}" method="post" class="stack compact">
@@ -113,9 +134,11 @@
               <button type="submit" class="secondary">Anlegen</button>
             </form>
           </section>
+          {% endif %}
 
+          {% if can_admin %}
           <section class="panel">
-            <h2>Google Drive</h2>
+            <h2>Drive-Sync</h2>
             <form action="{{ url_for('update_drive_config') }}" method="post" class="stack compact">
               <label>
                 Lokaler Drive-Ordner
@@ -151,7 +174,9 @@
             {% else %}
               <p class="sync-meta">API-Sync braucht vorher OAuth und Google Cloud.</p>
             {% endif %}
+            <p class="sync-meta">Worker: <code>python3 drive_tools.py poll</code> alle 5 Minuten per cron/systemd ausfuehren.</p>
           </section>
+          {% endif %}
         </aside>
       </section>
 
@@ -171,27 +196,35 @@
             <div class="subject-list" id="subject-list">
               {% for subject in subjects %}
                 {% set latest = subject.latest_submission %}
+                {% set sync = subject.drive_sync or {} %}
                 <article class="subject-card"
                   data-title="{{ subject.title|lower }}"
-                  data-search="{{ (subject.title ~ ' ' ~ subject.code ~ ' ' ~ (latest.kind if latest else '') ~ ' ' ~ (latest.term if latest else '') ~ ' ' ~ (latest.exam_date if latest else '') ~ ' ' ~ (latest.notes if latest else ''))|lower }}">
+                  data-search="{{ (subject.title ~ ' ' ~ subject.code ~ ' ' ~ (sync.drive_filename if sync else '') ~ ' ' ~ (latest.kind if latest else '') ~ ' ' ~ (latest.term if latest else '') ~ ' ' ~ (latest.exam_date if latest else '') ~ ' ' ~ (latest.notes if latest else ''))|lower }}">
                   <div>
                     <div class="card-title">
-                      <h3>{{ subject.title }}</h3>
+                      <h3><a class="title-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">{{ subject.title }}</a></h3>
                       {% if subject.has_current_pdf %}
                         <span class="badge ready">druckbereit</span>
                       {% else %}
                         <span class="badge muted">leer</span>
                       {% endif %}
+                      {% if sync.sync_status %}
+                        <span class="badge sync {{ sync.sync_status }}">{{ sync.sync_status }}</span>
+                      {% endif %}
                     </div>
                     <p>{{ subject.submissions|length }} Eintraege, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
                     {% if latest %}
                       <p class="latest">{{ latest.kind }}{% if latest.term %} - {{ latest.term }}{% endif %}{% if latest.exam_date %} - {{ latest.exam_date }}{% endif %}</p>
-                    {% elif subject.drive %}
-                      <p class="latest">Drive - {{ subject.drive.folder_path }} - {{ subject.drive.name }}</p>
+                    {% elif sync %}
+                      <p class="latest">Drive - {{ sync.drive_filename }}</p>
+                    {% endif %}
+                    {% if sync.last_sync_error %}
+                      <p class="sync-error">{{ sync.last_sync_error }}</p>
                     {% endif %}
                   </div>
                   <div class="card-actions">
                     {% if subject.has_current_pdf %}
+                      <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
                       <button type="button"
                         class="preview-button"
                         data-preview-url="{{ url_for('preview_pdf', subject_id=subject.id) }}"
@@ -199,8 +232,18 @@
                         data-preview-title="{{ subject.title }}">
                         Vorschau
                       </button>
+                      <a href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
                       <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+                      {% if sync.sync_status == 'conflict' and can_admin %}
+                        <form action="{{ url_for('accept_subject_drive_version', subject_id=subject.id) }}" method="post">
+                          <button type="submit" class="secondary small-action">Drive uebernehmen</button>
+                        </form>
+                        <form action="{{ url_for('force_push_subject_drive_version', subject_id=subject.id) }}" method="post">
+                          <button type="submit" class="danger small-action">App hochladen</button>
+                        </form>
+                      {% endif %}
                     {% else %}
+                      <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
                       <span class="empty">kein PDF</span>
                     {% endif %}
                   </div>

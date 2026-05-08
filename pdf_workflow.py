@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import shutil
-from datetime import date, datetime
+import zipfile
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Paragraph
 
 
 class PdfProcessingError(Exception):
@@ -84,73 +84,208 @@ def append_submission(
     }
 
 
+def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
+    current_path = subject_dir / "current.pdf"
+    archive_dir = subject_dir / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    submissions = sorted(
+        subject.get("submissions", []),
+        key=lambda item: (int(item.get("sort_order") or 0), item.get("added_at", ""), item.get("id", "")),
+    )
+
+    if current_path.exists():
+        backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+        shutil.copy2(current_path, backup_path)
+
+    if len(submissions) == 1 and submissions[0].get("collection_import"):
+        source = _stored_upload_path(subject_dir, submissions[0])
+        _validate_pdf(source)
+        shutil.copy2(source, current_path)
+        page_count = len(PdfReader(str(current_path)).pages)
+        return {"current_pages": page_count, "regenerated": True, "preserved_import": True}
+
+    writer = PdfWriter()
+    cover_pdf = _build_cover(subject, submissions)
+    cover_reader = PdfReader(cover_pdf)
+    writer.add_page(cover_reader.pages[0])
+
+    body_pages = 0
+    for submission in submissions:
+        upload_path = _stored_upload_path(subject_dir, submission)
+        reader = _validate_pdf(upload_path)
+        start = _body_start_for_submission(submission, len(reader.pages), len(submissions))
+        for page in reader.pages[start:]:
+            writer.add_page(page)
+            body_pages += 1
+
+    exports_dir = subject_dir / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    export_path = exports_dir / f"{subject['slug']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+    with current_path.open("wb") as output:
+        writer.write(output)
+    shutil.copy2(current_path, export_path)
+
+    return {
+        "current_pages": len(writer.pages),
+        "body_pages": body_pages,
+        "export_path": str(export_path.relative_to(subject_dir)),
+        "regenerated": True,
+    }
+
+
+def _stored_upload_path(subject_dir: Path, submission: dict) -> Path:
+    stored = submission.get("stored_upload", "")
+    if not stored:
+        raise PdfProcessingError("Ein Eintrag hat keine gespeicherte Upload-Datei.")
+    path = Path(stored)
+    if not path.is_absolute():
+        path = subject_dir / path
+    if not path.exists():
+        raise PdfProcessingError(f"Die gespeicherte Upload-Datei fehlt: {stored}")
+    return path
+
+
+def _validate_pdf(path: Path) -> PdfReader:
+    try:
+        reader = PdfReader(str(path))
+    except Exception as exc:
+        raise PdfProcessingError("Eine gespeicherte PDF konnte nicht gelesen werden.") from exc
+    if len(reader.pages) == 0:
+        raise PdfProcessingError("Eine gespeicherte PDF enthaelt keine Seiten.")
+    return reader
+
+
+def _body_start_for_submission(submission: dict, page_count: int, submission_count: int) -> int:
+    if submission.get("collection_import") and submission_count > 1 and page_count > 1:
+        return 1
+    if submission.get("strip_uploaded_cover") and page_count > 1:
+        return 1
+    return 0
+
+
 def _build_cover(subject: dict, entries: list[dict]) -> BytesIO:
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
 
-    margin_x = 24 * mm
-    y = height - 28 * mm
+    left = 20 * mm
+    top = height - 34 * mm
 
-    pdf.setFillColor(colors.HexColor("#1f3a3d"))
-    pdf.rect(0, height - 44 * mm, width, 44 * mm, fill=1, stroke=0)
-    pdf.setFillColor(colors.white)
-    pdf.setFont("Helvetica-Bold", 22)
-    pdf.drawString(margin_x, y, "Altklausurensammlung")
+    pdf.setFillColor(colors.black)
+    pdf.setFont("Helvetica", 18)
+    pdf.drawString(left, top, "Forum")
+    pdf.drawString(left, top - 9 * mm, "Wirtschaftsinformatik")
+    pdf.drawString(left, top - 18 * mm, "Karlsruher Institut f\u00fcr Technologie")
+
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(left, top - 29 * mm, "Kaiserstra\u00dfe 93, Geb. 05.20, Raum 3C-01  \u2022  76131 Karlsruhe")
+    pdf.drawString(left, top - 36 * mm, "Telefon: (0721) 608 - 46879")
+    pdf.drawString(left, top - 43 * mm, "Internet: www.forum-wi.de / altklausuren@forum-wi.de")
+
+    logo = _template_logo()
+    if logo:
+        pdf.drawImage(logo, width - 72 * mm, top - 45 * mm, width=48 * mm, height=48 * mm, mask="auto")
+
+    rule_y = top - 45 * mm
+    pdf.setLineWidth(0.8)
+    pdf.line(left, rule_y, width - 20 * mm, rule_y)
+
+    title_y = rule_y - 24 * mm
+    pdf.setFont("Helvetica", 36)
+    pdf.drawString(left, title_y, subject["title"])
+    pdf.setFont("Helvetica", 20)
+    pdf.drawString(left, title_y - 13 * mm, "Klausurensammlung")
+
+    _draw_exam_table(pdf, left + 3 * mm, title_y - 31 * mm, entries)
+
+    footer_y = 18 * mm
+    pdf.line(left, footer_y, width - 20 * mm, footer_y)
     pdf.setFont("Helvetica", 12)
-    pdf.drawString(margin_x, y - 9 * mm, subject["title"])
+    pdf.drawString(left, footer_y - 6 * mm, subject["title"])
 
-    y -= 38 * mm
-    pdf.setFillColor(colors.HexColor("#2b2f33"))
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(margin_x, y, "Stand")
-    pdf.setFont("Helvetica", 11)
-    y -= 9 * mm
-    pdf.drawString(margin_x, y, f"Aktualisiert am {date.today().strftime('%d.%m.%Y')}")
-    y -= 7 * mm
-    pdf.drawString(margin_x, y, f"Eintraege: {len(entries)}")
-    if subject.get("code"):
-        y -= 7 * mm
-        pdf.drawString(margin_x, y, f"Modul: {subject['code']}")
-
-    y -= 18 * mm
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(margin_x, y, "Inhalt")
-    y -= 8 * mm
-
-    styles = getSampleStyleSheet()
-    style = styles["BodyText"]
-    style.fontName = "Helvetica"
-    style.fontSize = 10
-    style.leading = 13
-
-    if entries:
-        for index, entry in enumerate(entries, start=1):
-            label = entry.get("kind") or "Eintrag"
-            term = entry.get("term") or "ohne Semester"
-            exam_date = entry.get("exam_date") or "ohne Datum"
-            notes = entry.get("notes") or ""
-            line = f"{index}. {label} - {term} - {exam_date}"
-            if notes:
-                line += f"<br/><font color='#5a6470'>{notes}</font>"
-            paragraph = Paragraph(line, style)
-            available_width = width - 2 * margin_x
-            paragraph_width, paragraph_height = paragraph.wrap(available_width, 22 * mm)
-            if y - paragraph_height < 24 * mm:
-                remaining = len(entries) - index + 1
-                pdf.setFillColor(colors.HexColor("#5a6470"))
-                pdf.setFont("Helvetica", 10)
-                pdf.drawString(margin_x, y, f"... plus {remaining} weitere Eintraege")
-                break
-            paragraph.drawOn(pdf, margin_x, y - paragraph_height)
-            y -= paragraph_height + 5 * mm
-    else:
-        pdf.setFont("Helvetica", 10)
-        pdf.drawString(margin_x, y, "Noch keine Eintraege vorhanden.")
-
-    pdf.setFillColor(colors.HexColor("#6b7280"))
-    pdf.setFont("Helvetica", 8)
-    pdf.drawString(margin_x, 15 * mm, "Automatisch erzeugt durch die Altklausuren-App.")
     pdf.save()
     buffer.seek(0)
     return buffer
+
+
+def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[dict]) -> None:
+    headers = ["Pr\u00fcfungsdatum", "Dozent", "L\u00f6sung"]
+    widths = [61 * mm, 64 * mm, 29 * mm]
+    row_height = 7.55 * mm
+    rows = max(13, min(18, len(entries) + 1))
+    table_width = sum(widths)
+    table_height = row_height * (rows + 1)
+
+    pdf.setFillColor(colors.HexColor("#d9d9d9"))
+    pdf.rect(x, y_top - row_height, table_width, row_height, fill=1, stroke=0)
+    pdf.setFillColor(colors.black)
+
+    pdf.setLineWidth(0.8)
+    for index in range(rows + 2):
+        y = y_top - index * row_height
+        pdf.line(x, y, x + table_width, y)
+
+    current_x = x
+    pdf.line(current_x, y_top, current_x, y_top - table_height)
+    for width in widths:
+        current_x += width
+        pdf.line(current_x, y_top, current_x, y_top - table_height)
+
+    pdf.setFont("Helvetica-Bold", 14)
+    current_x = x + 2 * mm
+    for header, width in zip(headers, widths):
+        pdf.drawString(current_x, y_top - 5.7 * mm, header)
+        current_x += width
+
+    pdf.setFont("Helvetica", 9)
+    sorted_entries = sorted(entries, key=lambda entry: entry.get("exam_date") or entry.get("term") or "", reverse=True)
+    for index, entry in enumerate(sorted_entries[:rows], start=1):
+        row_y = y_top - index * row_height - 5.0 * mm
+        exam_date = _display_exam_date(entry)
+        instructor = entry.get("instructor") or entry.get("dozent") or ""
+        solution = _display_solution(entry)
+        values = [exam_date, instructor, solution]
+        current_x = x + 2 * mm
+        for value, width in zip(values, widths):
+            pdf.drawString(current_x, row_y, _fit(value, width - 4 * mm, pdf, "Helvetica", 9))
+            current_x += width
+
+
+def _display_exam_date(entry: dict) -> str:
+    if entry.get("exam_date"):
+        try:
+            return datetime.strptime(entry["exam_date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+        except ValueError:
+            return entry["exam_date"]
+    return entry.get("term") or ""
+
+
+def _display_solution(entry: dict) -> str:
+    value = (entry.get("solution") or entry.get("has_solution") or "").strip().lower()
+    if value in {"yes", "ja", "true", "1", "mit loesung", "mit l\u00f6sung"}:
+        return "Ja"
+    if value in {"no", "nein", "false", "0", "ohne loesung", "ohne l\u00f6sung"}:
+        return "Nein"
+    return entry.get("solution") or ""
+
+
+def _fit(value: str, width: float, pdf: canvas.Canvas, font: str, size: int) -> str:
+    text = str(value)
+    if pdf.stringWidth(text, font, size) <= width:
+        return text
+    while text and pdf.stringWidth(f"{text}...", font, size) > width:
+        text = text[:-1]
+    return f"{text}..." if text else ""
+
+
+def _template_logo() -> ImageReader | None:
+    template_path = Path(__file__).resolve().parent / "Deckblatt_Altklausuren.docx"
+    if not template_path.exists():
+        return None
+    try:
+        with zipfile.ZipFile(template_path) as archive:
+            image = archive.read("word/media/image1.png")
+        return ImageReader(BytesIO(image))
+    except Exception:
+        return None
