@@ -166,18 +166,19 @@ def login():
         session["login_next"] = next_url
 
     if auth_config.provider == "forward_auth":
-        try:
-            forwarded_user = user_from_forward_auth(auth_config, request)
-        except AuthError as exc:
-            flash(str(exc), "error")
-            forwarded_user = None
-        if forwarded_user:
-            session["user"] = forwarded_user
-            session.pop("logged_out", None)
-            next_url = session.pop("login_next", "")
-            if _is_safe_next(next_url):
-                return redirect(next_url)
-            return redirect(url_for("index"))
+        if not session.get("logged_out"):
+            try:
+                forwarded_user = user_from_forward_auth(auth_config, request)
+            except AuthError as exc:
+                flash(str(exc), "error")
+                forwarded_user = None
+            if forwarded_user:
+                session["user"] = forwarded_user
+                session.pop("logged_out", None)
+                next_url = session.pop("login_next", "")
+                if _is_safe_next(next_url):
+                    return redirect(next_url)
+                return redirect(url_for("index"))
 
     return render_template(
         "login.html",
