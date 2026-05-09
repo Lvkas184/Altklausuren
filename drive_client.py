@@ -20,6 +20,10 @@ class DriveSetupError(Exception):
     pass
 
 
+class DriveFileNotFoundError(DriveSetupError):
+    pass
+
+
 class DriveClient:
     def __init__(self, credentials_dir: Path):
         self.credentials_dir = credentials_dir
@@ -227,6 +231,14 @@ class DriveClient:
                 .execute()
             )
         except Exception as exc:
+            try:
+                from googleapiclient.errors import HttpError
+                if isinstance(exc, HttpError) and exc.resp.status == 404:
+                    raise DriveFileNotFoundError(
+                        f"Drive-Datei nicht gefunden (geloescht?): {file_id}"
+                    ) from exc
+            except ImportError:
+                pass
             raise DriveSetupError(
                 "Der Drive-Ordner konnte nicht gelesen werden. Pruefe, ob der autorisierte Account Zugriff auf den Ordner hat."
             ) from exc

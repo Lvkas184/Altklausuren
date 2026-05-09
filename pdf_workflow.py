@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import shutil
 import zipfile
 from datetime import datetime
@@ -74,6 +75,7 @@ def append_submission(
     with current_path.open("wb") as output:
         writer.write(output)
     shutil.copy2(current_path, export_path)
+    generate_single_page_pdf(current_path)
 
     return {
         "stored_upload": str(upload_path.relative_to(subject_dir)),
@@ -125,6 +127,7 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
     with current_path.open("wb") as output:
         writer.write(output)
     shutil.copy2(current_path, export_path)
+    generate_single_page_pdf(current_path)
 
     return {
         "current_pages": len(writer.pages),
@@ -132,6 +135,46 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
         "export_path": str(export_path.relative_to(subject_dir)),
         "regenerated": True,
     }
+
+
+def generate_single_page_pdf(current_path: Path) -> None:
+    """Split 2-up landscape pages into individual portrait pages → single.pdf."""
+    single_path = current_path.parent / "single.pdf"
+    try:
+        reader = PdfReader(str(current_path))
+    except Exception:
+        return
+    writer = PdfWriter()
+    for page in reader.pages:
+        w = float(page.mediabox.width)
+        h = float(page.mediabox.height)
+        if w > h:
+            mid = w / 2.0
+            left = copy.deepcopy(page)
+            left.mediabox.left = 0
+            left.mediabox.right = mid
+            left.mediabox.bottom = 0
+            left.mediabox.top = h
+            left.cropbox.left = 0
+            left.cropbox.right = mid
+            left.cropbox.bottom = 0
+            left.cropbox.top = h
+            writer.add_page(left)
+            right = copy.deepcopy(page)
+            right.mediabox.left = mid
+            right.mediabox.right = w
+            right.mediabox.bottom = 0
+            right.mediabox.top = h
+            right.cropbox.left = mid
+            right.cropbox.right = w
+            right.cropbox.bottom = 0
+            right.cropbox.top = h
+            writer.add_page(right)
+        else:
+            writer.add_page(page)
+    if writer.pages:
+        with single_path.open("wb") as f:
+            writer.write(f)
 
 
 def _stored_upload_path(subject_dir: Path, submission: dict) -> Path:

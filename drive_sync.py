@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-from drive_client import DriveClient, DriveSetupError, extract_drive_id
+from drive_client import DriveClient, DriveFileNotFoundError, DriveSetupError, extract_drive_id
 from storage import Catalog
 
 
@@ -134,10 +134,14 @@ def push_subject_to_drive(
         catalog.set_sync_status(subject_id, UNMAPPED, "Dieses Fach ist noch keiner Drive-Datei zugeordnet.")
         return {"status": UNMAPPED, "pushed": False}
 
-    current_path = catalog.subject_dir(subject_id) / "current.pdf"
+    subject_dir = catalog.subject_dir(subject_id)
+    current_path = subject_dir / "current.pdf"
     if not current_path.exists():
         catalog.set_sync_status(subject_id, ERROR, "Es gibt keine lokale current.pdf fuer dieses Fach.")
         return {"status": ERROR, "pushed": False}
+
+    single_path = subject_dir / "single.pdf"
+    push_path = single_path if single_path.exists() else current_path
 
     client = client or DriveClient(data_dir / "credentials")
     catalog.set_sync_status(subject_id, UPLOADING)
@@ -168,9 +172,20 @@ def push_subject_to_drive(
             archive_name = _archive_name(sync.get("drive_filename") or remote_metadata.get("name") or "current.pdf")
             client.copy_to_archive_folder(file_id, archive_folder_id, archive_name)
 
-        updated_metadata = client.upload_new_version(file_id, current_path)
+        updated_metadata = client.upload_new_version(file_id, push_path)
         catalog.update_drive_sync(subject_id, _sync_metadata_from_drive(updated_metadata, archive_folder_id), current_pages=_page_count(current_path))
         return {"status": SYNCED, "pushed": True, "metadata": updated_metadata}
+    except DriveFileNotFoundError as exc:
+        catalog.update_drive_sync(
+            subject_id,
+            {
+                "sync_status": UNMAPPED,
+                "drive_file_id": "",
+                "last_sync_error": "Drive-Datei wurde geloescht oder ist nicht mehr erreichbar.",
+                "last_sync_attempt_at": _now(),
+            },
+        )
+        return {"status": UNMAPPED, "pushed": False}
     except DriveSetupError:
         raise
     except Exception as exc:
@@ -241,6 +256,17 @@ def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None) -> 
             metadata["sync_status"] = DRIVE_NEW
             catalog.update_drive_sync(subject["id"], metadata, current_pages=_page_count(current_path))
             imported += 1
+        except DriveFileNotFoundError:
+            catalog.update_drive_sync(
+                subject["id"],
+                {
+                    "sync_status": UNMAPPED,
+                    "drive_file_id": "",
+                    "last_sync_error": "Drive-Datei wurde geloescht oder ist nicht mehr erreichbar.",
+                    "last_sync_attempt_at": _now(),
+                },
+            )
+            errors += 1
         except Exception as exc:
             errors += 1
             catalog.set_sync_status(subject["id"], ERROR, str(exc))

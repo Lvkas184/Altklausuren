@@ -18,11 +18,15 @@
           </div>
         </div>
         <div class="top-actions">
-          <a class="nav-link" href="{{ url_for('index') }}">Uebersicht</a>
-          {% if subject.has_current_pdf %}
-            <a class="nav-link primary-link" href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
-            <a class="nav-link" href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+          {% if subject.has_single_pdf %}
+            <a class="nav-link primary-link" href="{{ url_for('single_pdf', subject_id=subject.id) }}">Einzelseiten PDF</a>
+          {% elif subject.has_current_pdf %}
+            <a class="nav-link primary-link" href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
           {% endif %}
+          {% if subject.has_current_pdf %}
+            <a class="nav-link" href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
+          {% endif %}
+          <a class="nav-link" href="{{ url_for('index') }}">← Uebersicht</a>
         </div>
       </header>
 

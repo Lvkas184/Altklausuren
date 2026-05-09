@@ -18,7 +18,7 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback, user_from_forward_auth
-from pdf_workflow import PdfProcessingError, append_submission, regenerate_current_pdf
+from pdf_workflow import PdfProcessingError, append_submission, generate_single_page_pdf, regenerate_current_pdf
 from drive_client import DriveSetupError
 from drive_sync import (
     CONFLICT,
@@ -237,7 +237,8 @@ def index():
     drive_config = load_drive_config(DATA_DIR)
     subjects = []
     for subject in catalog.list_subjects():
-        current_path = catalog.subject_dir(subject["id"]) / "current.pdf"
+        subject_dir = catalog.subject_dir(subject["id"])
+        current_path = subject_dir / "current.pdf"
         submissions = subject.get("submissions", [])
         latest = submissions[-1] if submissions else None
         category = _subject_category(subject)
@@ -246,6 +247,7 @@ def index():
             | {
                 "category": category,
                 "has_current_pdf": current_path.exists(),
+                "has_single_pdf": (subject_dir / "single.pdf").exists(),
                 "latest_submission": latest,
             }
         )
@@ -316,9 +318,11 @@ def subject_detail(subject_id: str):
     if not subject:
         abort(404)
 
-    current_path = catalog.subject_dir(subject_id) / "current.pdf"
+    subject_dir = catalog.subject_dir(subject_id)
+    current_path = subject_dir / "current.pdf"
     subject = subject | {
         "has_current_pdf": current_path.exists(),
+        "has_single_pdf": (subject_dir / "single.pdf").exists(),
         "latest_submission": subject.get("submissions", [])[-1] if subject.get("submissions") else None,
     }
     return render_template(
@@ -731,6 +735,28 @@ def current_pdf(subject_id: str):
 @app.get("/subjects/<subject_id>/preview.pdf")
 def preview_pdf(subject_id: str):
     return _send_current_pdf(subject_id, as_attachment=False)
+
+
+@app.get("/subjects/<subject_id>/single.pdf")
+def single_pdf(subject_id: str):
+    subject = catalog.get_subject(subject_id)
+    if not subject:
+        abort(404)
+    single_path = catalog.subject_dir(subject_id) / "single.pdf"
+    if not single_path.exists():
+        abort(404)
+    return send_file(single_path, mimetype="application/pdf", as_attachment=True, download_name=f"{subject['slug']}-einzelseiten.pdf")
+
+
+@app.get("/subjects/<subject_id>/single-preview.pdf")
+def single_preview_pdf(subject_id: str):
+    subject = catalog.get_subject(subject_id)
+    if not subject:
+        abort(404)
+    single_path = catalog.subject_dir(subject_id) / "single.pdf"
+    if not single_path.exists():
+        abort(404)
+    return send_file(single_path, mimetype="application/pdf", as_attachment=False)
 
 
 def _send_current_pdf(subject_id: str, *, as_attachment: bool):
