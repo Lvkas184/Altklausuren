@@ -33,6 +33,12 @@ Danach im Browser oeffnen:
 http://127.0.0.1:5001
 ```
 
+Optional kann das Datenverzeichnis gesetzt werden:
+
+```bash
+ALTKLAUSUREN_DATA_DIR=/pfad/zum/data /opt/anaconda3/bin/python3 app.py
+```
+
 ## Google Drive synchronisieren
 
 Die App kann einen Drive-Ordner rekursiv lesen, alle PDFs herunterladen und daraus die lokale Klausurenstand-Uebersicht aufbauen.
@@ -113,6 +119,18 @@ Worker fuer regelmaessige Drive-Pruefung:
 python3 drive_tools.py poll
 ```
 
+Credentials und Ordnerzugriff pruefen:
+
+```bash
+python3 drive_tools.py check "https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA"
+```
+
+Der Befehl nutzt dieselbe `.env` wie die Web-App. Fuer lokale Tests sollte `ALTKLAUSUREN_DATA_DIR` auf das Projekt-`data/` zeigen oder beim Befehl ueberschrieben werden:
+
+```bash
+ALTKLAUSUREN_DATA_DIR=/Users/lukas184/Altklausuren/Altklausuren/data python3 drive_tools.py check "https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA"
+```
+
 Weitere Werkzeuge:
 
 ```bash
@@ -141,7 +159,10 @@ GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://altklausuren.forum-wi.de/auth/callback
 DRIVE_ROOT_FOLDER_ID=0AOnFniEMTZ8bUk9PVA
 ALLOWED_GOOGLE_DOMAIN=forum-wi.de
+ADMIN_EMAILS=lukas.heinz@forum-wi.de
 SECRET_KEY=<lange-zufaellige-session-secret>
+TRUST_PROXY_HEADERS=true
+ALTKLAUSUREN_DATA_DIR=/var/lib/altklausuren
 ```
 
 Der Login prueft dann:
@@ -151,6 +172,31 @@ Der Login prueft dann:
 - dieses Konto kann den konfigurierten Altklausuren-Drive-Ordner lesen
 
 Wenn die Drive-Pruefung fehlschlaegt, wird der Zugriff auf die App verweigert. Personen mit Schreibfaehigkeiten im Drive werden in der Session als `editor` markiert, reine Leser:innen als `viewer`.
+E-Mails aus `ADMIN_EMAILS` bekommen zusaetzlich Admin-Rechte fuer Drive-Konfiguration, Import und Konfliktaktionen.
+
+## Deployment
+
+Produktionsvorlagen liegen in `deploy/`:
+
+- `deploy/altklausuren.env.example`: benoetigte Umgebungsvariablen
+- `deploy/altklausuren.service`: systemd-Service fuer gunicorn
+- `deploy/altklausuren-drive-poll.service`: einmaliger Drive-Poll
+- `deploy/altklausuren-drive-poll.timer`: Drive-Poll alle 5 Minuten
+- `deploy/nginx-altklausuren.conf`: nginx-Reverse-Proxy
+
+Der WSGI-Einstieg fuer gunicorn ist:
+
+```bash
+gunicorn --workers 2 --threads 4 --bind 127.0.0.1:8001 wsgi:app
+```
+
+Healthcheck:
+
+```text
+/healthz
+```
+
+Die detaillierte Server-Checkliste steht in `deploy/README.md`.
 
 ## Tests
 
@@ -163,6 +209,7 @@ python3 -m unittest discover tests
 Die App schreibt nach `data/`:
 
 - `data/catalog.json`: Faecher und Eintraege
+- `data/altklausuren.sqlite3`: dauerhafte SQLite-Datenbank
 - `data/subjects/<fach>/current.pdf`: aktuelle Sammlung
 - `data/subjects/<fach>/incoming/`: hochgeladene Originale
 - `data/subjects/<fach>/archive/`: Backups alter Sammlungen

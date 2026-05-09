@@ -1,0 +1,16 @@
+[Unit]
+Description=Altklausuren Flask app
+After=network.target
+
+[Service]
+Type=simple
+User=altklausuren
+Group=altklausuren
+WorkingDirectory=/opt/altklausuren
+EnvironmentFile=/etc/altklausuren/altklausuren.env
+ExecStart=/opt/altklausuren/.venv/bin/gunicorn --workers 2 --threads 4 --bind 127.0.0.1:8001 wsgi:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

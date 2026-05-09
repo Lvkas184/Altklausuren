@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anmelden - Altklausuren</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="login-body">
+    <main class="login-shell">
+      <section class="login-card" aria-labelledby="login-title">
+        <h1 id="login-title">Anmelden im Altklausuren-System</h1>
+        {% if auth_provider == "forward_auth" %}
+          <p>
+            Die Anmeldung laeuft ueber den ForumWI-Login. Wenn Du diese Seite siehst,
+            wurde keine gueltige ForumWI-Sitzung an die App uebergeben.
+          </p>
+          <p>
+            Zugelassen sind @{{ allowed_domain }}-Konten mit einer passenden Gruppe
+            oder Berechtigung fuer die Altklausuren-App.
+          </p>
+        {% else %}
+          <p>
+            Bitte melde Dich mit dem Google-Account des Forum Wirtschaftsinformatik an.
+            Solltest Du keinen Account haben, melde dich beim Forum an.
+          </p>
+          <p>
+            Mit dem Besuchen dieser Seite stimmst Du den Nutzungsbedingungen und der
+            Cookie-Speicherung zu.
+          </p>
+          <a class="google-login-button" href="{{ url_for('google_login') }}">
+            <span class="google-mark" aria-hidden="true">G</span>
+            <span>Ueber Google anmelden</span>
+          </a>
+          <p class="login-meta">
+            Zugelassen sind verifizierte @{{ allowed_domain }}-Konten mit Zugriff auf den Altklausuren-Drive.
+          </p>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

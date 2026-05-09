@@ -1,4 +1,5 @@
 .vendor/
+.env
 data/*
 !data/.gitkeep
 __pycache__/

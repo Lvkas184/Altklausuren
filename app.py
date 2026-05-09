@@ -7,15 +7,17 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 VENDOR = Path(__file__).resolve().parent / ".vendor"
 if VENDOR.exists():
     sys.path.insert(0, str(VENDOR))
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_file, session, url_for
 from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
-from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback
+from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback, user_from_forward_auth
 from pdf_workflow import PdfProcessingError, append_submission, regenerate_current_pdf
 from drive_client import DriveSetupError
 from drive_sync import (
@@ -32,16 +34,33 @@ from drive_sync import (
     sync_drive_folder,
     sync_local_folder,
 )
+from config import load_dotenv
 from storage import Catalog
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-UPLOAD_LIMIT_MB = 80
+if os.getenv("ALTKLAUSUREN_SKIP_DOTENV", "").lower() not in {"1", "true", "yes"}:
+    load_dotenv(BASE_DIR / ".env")
+DATA_DIR = Path(os.getenv("ALTKLAUSUREN_DATA_DIR", BASE_DIR / "data")).expanduser()
+UPLOAD_LIMIT_MB = int(os.getenv("UPLOAD_LIMIT_MB", "80"))
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes"}
+
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-altklausuren-local")
 app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+if _env_flag("SESSION_COOKIE_SECURE", default=_env_flag("AUTH_ENABLED") and os.getenv("GOOGLE_REDIRECT_URI", "").startswith("https://")):
+    app.config["SESSION_COOKIE_SECURE"] = True
+if os.getenv("TRUST_PROXY_HEADERS", "").lower() in {"1", "true", "yes"}:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 catalog = Catalog(DATA_DIR)
 
@@ -97,14 +116,37 @@ def require_login():
     if not auth_config.enabled:
         return None
 
-    public_endpoints = {"login", "auth_callback", "logout", "static"}
+    public_endpoints = {"healthz", "favicon", "login", "google_login", "auth_callback", "logout", "static"}
     if request.endpoint in public_endpoints:
         return None
+
+    if auth_config.provider == "forward_auth":
+        try:
+            forwarded_user = user_from_forward_auth(auth_config, request)
+        except AuthError as exc:
+            clear_user()
+            flash(str(exc), "error")
+            return redirect(url_for("login", next=request.full_path))
+        if forwarded_user:
+            session["user"] = forwarded_user
+            return None
+        clear_user()
+        return redirect(url_for("login", next=request.full_path))
 
     if current_user():
         return None
 
     return redirect(url_for("login", next=request.full_path))
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}, 200
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return "", 204
 
 
 @app.get("/login")
@@ -114,11 +156,47 @@ def login():
         flash("Login ist lokal deaktiviert.", "success")
         return redirect(url_for("index"))
 
+    next_url = request.args.get("next", "")
+    if _is_safe_next(next_url):
+        session["login_next"] = next_url
+
+    if auth_config.provider == "forward_auth":
+        try:
+            forwarded_user = user_from_forward_auth(auth_config, request)
+        except AuthError as exc:
+            flash(str(exc), "error")
+            forwarded_user = None
+        if forwarded_user:
+            session["user"] = forwarded_user
+            next_url = session.pop("login_next", "")
+            if _is_safe_next(next_url):
+                return redirect(next_url)
+            return redirect(url_for("index"))
+
+    return render_template(
+        "login.html",
+        allowed_domain=auth_config.allowed_domain,
+        auth_enabled=True,
+        auth_provider=auth_config.provider,
+        current_user=current_user(),
+    )
+
+
+@app.get("/login/google")
+def google_login():
+    auth_config = AuthConfig.from_env()
+    if not auth_config.enabled:
+        flash("Login ist lokal deaktiviert.", "success")
+        return redirect(url_for("index"))
+    if auth_config.provider != "google":
+        flash("Google-OAuth ist in diesem Auth-Modus nicht aktiv.", "error")
+        return redirect(url_for("login"))
+
     try:
         return redirect(build_login_url(auth_config))
     except AuthError as exc:
         flash(str(exc), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("login"))
 
 
 @app.get("/auth/callback")
@@ -131,6 +209,9 @@ def auth_callback():
         flash(str(exc), "error")
         return redirect(url_for("login"))
 
+    next_url = session.pop("login_next", "")
+    if _is_safe_next(next_url):
+        return redirect(next_url)
     return redirect(url_for("index"))
 
 
@@ -141,6 +222,16 @@ def logout():
     return redirect(url_for("login"))
 
 
+def _is_safe_next(next_url: str) -> bool:
+    return (
+        bool(next_url)
+        and next_url.startswith("/")
+        and not next_url.startswith("//")
+        and next_url != "/favicon.ico"
+        and not next_url.startswith("/static/")
+    )
+
+
 @app.get("/")
 def index():
     drive_config = load_drive_config(DATA_DIR)
@@ -149,9 +240,11 @@ def index():
         current_path = catalog.subject_dir(subject["id"]) / "current.pdf"
         submissions = subject.get("submissions", [])
         latest = submissions[-1] if submissions else None
+        category = _subject_category(subject)
         subjects.append(
             subject
             | {
+                "category": category,
                 "has_current_pdf": current_path.exists(),
                 "latest_submission": latest,
             }
@@ -163,9 +256,37 @@ def index():
         max_upload_mb=UPLOAD_LIMIT_MB,
         ready_count=ready_count,
         drive_config=drive_config,
+        subject_categories=_group_subjects_by_category(subjects),
         auth_enabled=AuthConfig.from_env().enabled,
         current_user=current_user(),
     )
+
+
+def _subject_category(subject: dict) -> str:
+    sync = subject.get("drive_sync") or {}
+    folder_path = sync.get("drive_folder_path", "")
+    parts = [part for part in folder_path.split("/") if part]
+    if parts and parts[0].lower() == "drive":
+        parts = parts[1:]
+    if parts:
+        return parts[0]
+    return "Nicht kategorisiert"
+
+
+def _group_subjects_by_category(subjects: list[dict]) -> list[dict]:
+    grouped: dict[str, list[dict]] = {}
+    for subject in subjects:
+        grouped.setdefault(subject["category"], []).append(subject)
+    categories = []
+    for name, items in grouped.items():
+        categories.append(
+            {
+                "name": name,
+                "subjects": sorted(items, key=lambda item: item["title"].lower()),
+                "ready_count": sum(1 for item in items if item["has_current_pdf"]),
+            }
+        )
+    return sorted(categories, key=lambda item: (item["name"] == "Nicht kategorisiert", item["name"].lower()))
 
 
 @app.post("/subjects")

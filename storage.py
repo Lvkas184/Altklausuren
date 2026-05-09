@@ -255,6 +255,7 @@ class Catalog:
                     subject_id text primary key references subjects(id) on delete cascade,
                     drive_file_id text not null default '',
                     drive_folder_id text not null default '',
+                    drive_folder_path text not null default '',
                     drive_filename text not null default '',
                     last_drive_modified_time text not null default '',
                     last_drive_md5 text not null default '',
@@ -287,6 +288,7 @@ class Catalog:
                 );
                 """
             )
+            self._ensure_column(db, "drive_sync", "drive_folder_path", "text not null default ''")
             db.commit()
 
     def _migrate_json_catalog(self) -> None:
@@ -360,15 +362,16 @@ class Catalog:
         db.execute(
             """
             insert into drive_sync (
-                subject_id, drive_file_id, drive_folder_id, drive_filename,
-                last_drive_modified_time, last_drive_md5, last_drive_fingerprint,
+                subject_id, drive_file_id, drive_folder_id, drive_folder_path,
+                drive_filename, last_drive_modified_time, last_drive_md5, last_drive_fingerprint,
                 last_synced_at, sync_status, last_sync_error, last_sync_attempt_at,
                 web_view_link, archive_folder_id, remote_drive_fingerprint,
                 remote_drive_modified_time, remote_drive_md5
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(subject_id) do update set
                 drive_file_id = excluded.drive_file_id,
                 drive_folder_id = excluded.drive_folder_id,
+                drive_folder_path = excluded.drive_folder_path,
                 drive_filename = excluded.drive_filename,
                 last_drive_modified_time = excluded.last_drive_modified_time,
                 last_drive_md5 = excluded.last_drive_md5,
@@ -387,6 +390,7 @@ class Catalog:
                 subject_id,
                 normalized.get("drive_file_id", ""),
                 normalized.get("drive_folder_id", ""),
+                normalized.get("drive_folder_path", ""),
                 normalized.get("drive_filename", ""),
                 normalized.get("last_drive_modified_time", ""),
                 normalized.get("last_drive_md5", ""),
@@ -402,6 +406,11 @@ class Catalog:
                 normalized.get("remote_drive_md5", ""),
             ),
         )
+
+    def _ensure_column(self, db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in db.execute(f"pragma table_info({table})").fetchall()}
+        if column not in columns:
+            db.execute(f"alter table {table} add column {column} {definition}")
 
     def _audit(self, event: str, subject_id: str | None, payload: dict) -> None:
         with self._connect() as db:
@@ -439,6 +448,7 @@ def _infer_strip_uploaded_cover(submission: dict) -> int:
 def _normalize_drive_sync(drive_metadata: dict) -> dict:
     file_id = drive_metadata.get("drive_file_id") or drive_metadata.get("file_id", "")
     folder_id = drive_metadata.get("drive_folder_id") or drive_metadata.get("folder_id", "")
+    folder_path = drive_metadata.get("drive_folder_path") or drive_metadata.get("folder_path", "")
     filename = drive_metadata.get("drive_filename") or drive_metadata.get("name", "")
     modified_time = drive_metadata.get("last_drive_modified_time") or drive_metadata.get("modified_time", "")
     md5 = drive_metadata.get("last_drive_md5") or drive_metadata.get("md5_checksum", "")
@@ -446,6 +456,7 @@ def _normalize_drive_sync(drive_metadata: dict) -> dict:
     return {
         "drive_file_id": file_id,
         "drive_folder_id": folder_id,
+        "drive_folder_path": folder_path,
         "drive_filename": filename,
         "last_drive_modified_time": modified_time,
         "last_drive_md5": md5,

@@ -20,7 +20,7 @@
           {% if auth_enabled %}
             <div class="user-pill">
               <strong>{{ current_user.name }}</strong>
-              <span>{{ current_user.role }}</span>
+              <span>{{ active_role }}</span>
               <a href="{{ url_for('logout') }}">Abmelden</a>
             </div>
           {% endif %}
@@ -194,60 +194,71 @@
         {% if subjects %}
           <div class="catalog-layout">
             <div class="subject-list" id="subject-list">
-              {% for subject in subjects %}
-                {% set latest = subject.latest_submission %}
-                {% set sync = subject.drive_sync or {} %}
-                <article class="subject-card"
-                  data-title="{{ subject.title|lower }}"
-                  data-search="{{ (subject.title ~ ' ' ~ subject.code ~ ' ' ~ (sync.drive_filename if sync else '') ~ ' ' ~ (latest.kind if latest else '') ~ ' ' ~ (latest.term if latest else '') ~ ' ' ~ (latest.exam_date if latest else '') ~ ' ' ~ (latest.notes if latest else ''))|lower }}">
-                  <div>
-                    <div class="card-title">
-                      <h3><a class="title-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">{{ subject.title }}</a></h3>
-                      {% if subject.has_current_pdf %}
-                        <span class="badge ready">druckbereit</span>
-                      {% else %}
-                        <span class="badge muted">leer</span>
-                      {% endif %}
-                      {% if sync.sync_status %}
-                        <span class="badge sync {{ sync.sync_status }}">{{ sync.sync_status }}</span>
-                      {% endif %}
-                    </div>
-                    <p>{{ subject.submissions|length }} Eintraege, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
-                    {% if latest %}
-                      <p class="latest">{{ latest.kind }}{% if latest.term %} - {{ latest.term }}{% endif %}{% if latest.exam_date %} - {{ latest.exam_date }}{% endif %}</p>
-                    {% elif sync %}
-                      <p class="latest">Drive - {{ sync.drive_filename }}</p>
-                    {% endif %}
-                    {% if sync.last_sync_error %}
-                      <p class="sync-error">{{ sync.last_sync_error }}</p>
-                    {% endif %}
+              {% for category in subject_categories %}
+                <section class="category-section" data-category-section>
+                  <button type="button" class="category-header" data-category-toggle aria-expanded="true">
+                    <span class="folder-icon" aria-hidden="true"></span>
+                    <span>{{ category.name }}</span>
+                    <small>{{ category.subjects|length }} Sammlungen, {{ category.ready_count }} druckbereit</small>
+                  </button>
+                  <div class="category-items">
+                    {% for subject in category.subjects %}
+                      {% set latest = subject.latest_submission %}
+                      {% set sync = subject.drive_sync or {} %}
+                      <article class="subject-card"
+                        data-title="{{ subject.title|lower }}"
+                        data-search="{{ (category.name ~ ' ' ~ subject.title ~ ' ' ~ subject.code ~ ' ' ~ (sync.drive_folder_path if sync else '') ~ ' ' ~ (sync.drive_filename if sync else '') ~ ' ' ~ (latest.kind if latest else '') ~ ' ' ~ (latest.term if latest else '') ~ ' ' ~ (latest.exam_date if latest else '') ~ ' ' ~ (latest.notes if latest else ''))|lower }}">
+                        <div>
+                          <div class="card-title">
+                            <h3><a class="title-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">{{ subject.title }}</a></h3>
+                            {% if subject.has_current_pdf %}
+                              <span class="badge ready">druckbereit</span>
+                            {% else %}
+                              <span class="badge muted">leer</span>
+                            {% endif %}
+                            {% if sync.sync_status %}
+                              <span class="badge sync {{ sync.sync_status }}">{{ sync.sync_status }}</span>
+                            {% endif %}
+                          </div>
+                          <p>{{ subject.submissions|length }} Eintraege, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
+                          {% if latest %}
+                            <p class="latest">{{ latest.kind }}{% if latest.term %} - {{ latest.term }}{% endif %}{% if latest.exam_date %} - {{ latest.exam_date }}{% endif %}</p>
+                          {% elif sync %}
+                            <p class="latest">Drive - {{ sync.drive_filename }}</p>
+                          {% endif %}
+                          {% if sync.last_sync_error %}
+                            <p class="sync-error">{{ sync.last_sync_error }}</p>
+                          {% endif %}
+                        </div>
+                        <div class="card-actions">
+                          {% if subject.has_current_pdf %}
+                            <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
+                            <button type="button"
+                              class="preview-button"
+                              data-preview-url="{{ url_for('preview_pdf', subject_id=subject.id) }}"
+                              data-download-url="{{ url_for('current_pdf', subject_id=subject.id) }}"
+                              data-preview-title="{{ subject.title }}">
+                              Vorschau
+                            </button>
+                            <a href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
+                            <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+                            {% if sync.sync_status == 'conflict' and can_admin %}
+                              <form action="{{ url_for('accept_subject_drive_version', subject_id=subject.id) }}" method="post">
+                                <button type="submit" class="secondary small-action">Drive uebernehmen</button>
+                              </form>
+                              <form action="{{ url_for('force_push_subject_drive_version', subject_id=subject.id) }}" method="post">
+                                <button type="submit" class="danger small-action">App hochladen</button>
+                              </form>
+                            {% endif %}
+                          {% else %}
+                            <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
+                            <span class="empty">kein PDF</span>
+                          {% endif %}
+                        </div>
+                      </article>
+                    {% endfor %}
                   </div>
-                  <div class="card-actions">
-                    {% if subject.has_current_pdf %}
-                      <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
-                      <button type="button"
-                        class="preview-button"
-                        data-preview-url="{{ url_for('preview_pdf', subject_id=subject.id) }}"
-                        data-download-url="{{ url_for('current_pdf', subject_id=subject.id) }}"
-                        data-preview-title="{{ subject.title }}">
-                        Vorschau
-                      </button>
-                      <a href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
-                      <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
-                      {% if sync.sync_status == 'conflict' and can_admin %}
-                        <form action="{{ url_for('accept_subject_drive_version', subject_id=subject.id) }}" method="post">
-                          <button type="submit" class="secondary small-action">Drive uebernehmen</button>
-                        </form>
-                        <form action="{{ url_for('force_push_subject_drive_version', subject_id=subject.id) }}" method="post">
-                          <button type="submit" class="danger small-action">App hochladen</button>
-                        </form>
-                      {% endif %}
-                    {% else %}
-                      <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
-                      <span class="empty">kein PDF</span>
-                    {% endif %}
-                  </div>
-                </article>
+                </section>
               {% endfor %}
               <p class="blank hidden" id="no-results">Keine Sammlung passt zur Suche.</p>
             </div>

@@ -32,10 +32,11 @@ def save_drive_config(data_dir: Path, config: dict) -> None:
     (data_dir / "drive_config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | None = None) -> dict:
+def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | None = None, include_all: bool = False) -> dict:
     catalog = Catalog(data_dir)
     client = client or DriveClient(data_dir / "credentials")
-    files = client.list_pdfs_recursive(root_url)
+    source_files = client.list_pdfs_recursive(root_url)
+    files = source_files if include_all else _select_print_collections(source_files, root_url)
 
     imported = 0
     skipped = 0
@@ -49,6 +50,21 @@ def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | No
 
         existing_sync = subject.get("drive_sync") or subject.get("drive", {})
         if existing_sync.get("last_drive_fingerprint") == fingerprint or existing_sync.get("fingerprint") == fingerprint:
+            catalog.update_drive_sync(
+                subject["id"],
+                {
+                    "file_id": file["id"],
+                    "name": file["name"],
+                    "folder_path": file["folder_path"],
+                    "folder_id": _first_parent(file),
+                    "web_view_link": file.get("webViewLink", ""),
+                    "modified_time": file.get("modifiedTime", ""),
+                    "md5_checksum": file.get("md5Checksum", ""),
+                    "fingerprint": fingerprint,
+                    "synced_at": existing_sync.get("last_synced_at") or sync_started_at,
+                    "sync_status": existing_sync.get("sync_status") or SYNCED,
+                },
+            )
             skipped += 1
             continue
 
@@ -87,10 +103,17 @@ def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | No
             "root_id": extract_drive_id(root_url),
             "last_sync_at": sync_started_at,
             "last_file_count": len(files),
+            "last_source_file_count": len(source_files),
         },
     )
 
-    return {"found": len(files), "imported": imported, "skipped": skipped, "synced_at": sync_started_at}
+    return {
+        "found": len(files),
+        "source_found": len(source_files),
+        "imported": imported,
+        "skipped": skipped,
+        "synced_at": sync_started_at,
+    }
 
 
 def push_subject_to_drive(
@@ -289,9 +312,62 @@ def sync_local_folder(*, data_dir: Path, root_path: str) -> dict:
 
 def _subject_title(file: dict, root_url: str) -> str:
     folder_parts = [part for part in file["folder_path"].split("/") if part]
-    if len(folder_parts) >= 2:
-        return folder_parts[-1]
+    if folder_parts:
+        title_parts = folder_parts[:]
+        while title_parts:
+            parent_name = title_parts[-2] if len(title_parts) >= 2 else ""
+            if not _is_technical_leaf_folder(title_parts[-1], parent_name):
+                break
+            title_parts.pop()
+        if len(title_parts) >= 2:
+            return title_parts[-1]
     return Path(file["name"]).stem
+
+
+def _is_technical_leaf_folder(folder_name: str, parent_name: str = "") -> bool:
+    normalized = folder_name.strip().lower()
+    parent_normalized = parent_name.strip().lower()
+    return (
+        normalized in {"klausuren", "archiv", "pdf", "pdfs", "protokolle original"}
+        or normalized.endswith("_pdf")
+        or normalized.endswith(" pdf")
+        or (normalized == "mündliche protokolle" and "mündliche protokolle" in parent_normalized)
+    )
+
+
+def _is_print_collection(file: dict) -> bool:
+    name = file.get("name", "").lower()
+    folder_path = file.get("folder_path", "").lower()
+    folder_parts = {part for part in folder_path.split("/") if part}
+    if folder_parts & {"archiv", "veraltet"}:
+        return False
+    return name.endswith(".pdf") and ("druck" in name or "merged" in name)
+
+
+def _select_print_collections(files: list[dict], root_url: str) -> list[dict]:
+    selected: dict[str, dict] = {}
+    for file in files:
+        if not _is_print_collection(file):
+            continue
+        subject_title = _subject_title(file, root_url)
+        current = selected.get(subject_title)
+        if current is None or _print_collection_score(file) > _print_collection_score(current):
+            selected[subject_title] = file
+    return list(selected.values())
+
+
+def _print_collection_score(file: dict) -> tuple[int, int, str]:
+    name = file.get("name", "").lower()
+    score = 0
+    if "reverse" not in name:
+        score += 10
+    if "druck" in name:
+        score += 5
+    if name.startswith("druck"):
+        score += 2
+    if "merged" in name:
+        score += 1
+    return (score, len(name), name)
 
 
 def _local_subject_title(relative_path: Path) -> str:

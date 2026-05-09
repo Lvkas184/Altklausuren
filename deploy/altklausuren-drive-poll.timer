@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Altklausuren Google Drive poll every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=altklausuren-drive-poll.service
+
+[Install]
+WantedBy=timers.target

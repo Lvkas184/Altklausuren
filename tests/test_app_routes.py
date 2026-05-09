@@ -11,6 +11,7 @@ VENDOR = ROOT / ".vendor"
 if VENDOR.exists():
     sys.path.insert(0, str(VENDOR))
 sys.path.insert(0, str(ROOT))
+os.environ["ALTKLAUSUREN_SKIP_DOTENV"] = "true"
 
 import app as app_module
 from pypdf import PdfReader, PdfWriter
@@ -199,6 +200,41 @@ class AppRoutesTest(unittest.TestCase):
                     else:
                         os.environ[key] = value
 
+    def test_admin_email_is_displayed_as_admin_role(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            old_env = {
+                "AUTH_ENABLED": os.environ.get("AUTH_ENABLED"),
+                "GOOGLE_CLIENT_ID": os.environ.get("GOOGLE_CLIENT_ID"),
+                "GOOGLE_CLIENT_SECRET": os.environ.get("GOOGLE_CLIENT_SECRET"),
+                "GOOGLE_REDIRECT_URI": os.environ.get("GOOGLE_REDIRECT_URI"),
+                "DRIVE_ROOT_FOLDER_ID": os.environ.get("DRIVE_ROOT_FOLDER_ID"),
+                "ADMIN_EMAILS": os.environ.get("ADMIN_EMAILS"),
+            }
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                os.environ["AUTH_ENABLED"] = "true"
+                os.environ["GOOGLE_CLIENT_ID"] = "client-id"
+                os.environ["GOOGLE_CLIENT_SECRET"] = "client-secret"
+                os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost/auth/callback"
+                os.environ["DRIVE_ROOT_FOLDER_ID"] = "folder-id"
+                os.environ["ADMIN_EMAILS"] = "lukas.heinz@forum-wi.de"
+                client = app_module.app.test_client()
+                with client.session_transaction() as session:
+                    session["user"] = {"email": "lukas.heinz@forum-wi.de", "name": "Lukas Heinz", "role": "editor"}
+
+                response = client.get("/")
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b"admin", response.data)
+            finally:
+                app_module.catalog = original_catalog
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
     def test_auth_gate_redirects_when_enabled(self):
         with app_module.app.test_client() as client:
             old_env = dict()
@@ -230,6 +266,188 @@ class AppRoutesTest(unittest.TestCase):
                         os.environ.pop(key, None)
                     else:
                         os.environ[key] = value
+
+    def test_login_page_renders_google_button(self):
+        with app_module.app.test_client() as client:
+            old_env = {key: os.environ.get(key) for key in [
+                "AUTH_ENABLED",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "GOOGLE_REDIRECT_URI",
+                "DRIVE_ROOT_FOLDER_ID",
+                "SECRET_KEY",
+            ]}
+            try:
+                os.environ["AUTH_ENABLED"] = "true"
+                os.environ["GOOGLE_CLIENT_ID"] = "client-id"
+                os.environ["GOOGLE_CLIENT_SECRET"] = "client-secret"
+                os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost/auth/callback"
+                os.environ["DRIVE_ROOT_FOLDER_ID"] = "folder-id"
+                os.environ["SECRET_KEY"] = "test-secret"
+
+                response = client.get("/login?next=/subjects/mathe")
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b"Anmelden im Altklausuren-System", response.data)
+                self.assertIn(b"Ueber Google anmelden", response.data)
+                self.assertIn(b"/login/google", response.data)
+                with client.session_transaction() as session:
+                    self.assertEqual(session["login_next"], "/subjects/mathe")
+            finally:
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    def test_login_ignores_favicon_next_target(self):
+        with app_module.app.test_client() as client:
+            old_env = {key: os.environ.get(key) for key in [
+                "AUTH_ENABLED",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "GOOGLE_REDIRECT_URI",
+                "DRIVE_ROOT_FOLDER_ID",
+                "SECRET_KEY",
+            ]}
+            try:
+                os.environ["AUTH_ENABLED"] = "true"
+                os.environ["GOOGLE_CLIENT_ID"] = "client-id"
+                os.environ["GOOGLE_CLIENT_SECRET"] = "client-secret"
+                os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost/auth/callback"
+                os.environ["DRIVE_ROOT_FOLDER_ID"] = "folder-id"
+                os.environ["SECRET_KEY"] = "test-secret"
+
+                response = client.get("/login?next=/favicon.ico")
+
+                self.assertEqual(response.status_code, 200)
+                with client.session_transaction() as session:
+                    self.assertNotIn("login_next", session)
+            finally:
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    def test_favicon_is_public(self):
+        with app_module.app.test_client() as client:
+            old_auth = os.environ.get("AUTH_ENABLED")
+            try:
+                os.environ["AUTH_ENABLED"] = "true"
+                response = client.get("/favicon.ico")
+
+                self.assertEqual(response.status_code, 204)
+            finally:
+                if old_auth is None:
+                    os.environ.pop("AUTH_ENABLED", None)
+                else:
+                    os.environ["AUTH_ENABLED"] = old_auth
+
+    def test_google_login_starts_oauth_redirect(self):
+        with app_module.app.test_client() as client:
+            old_env = {key: os.environ.get(key) for key in [
+                "AUTH_ENABLED",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "GOOGLE_REDIRECT_URI",
+                "DRIVE_ROOT_FOLDER_ID",
+                "SECRET_KEY",
+            ]}
+            try:
+                os.environ["AUTH_ENABLED"] = "true"
+                os.environ["GOOGLE_CLIENT_ID"] = "client-id"
+                os.environ["GOOGLE_CLIENT_SECRET"] = "client-secret"
+                os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost/auth/callback"
+                os.environ["DRIVE_ROOT_FOLDER_ID"] = "folder-id"
+                os.environ["SECRET_KEY"] = "test-secret"
+
+                response = client.get("/login/google")
+
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("https://accounts.google.com/o/oauth2/v2/auth", response.headers["Location"])
+            finally:
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    def test_forward_auth_headers_create_editor_session(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            old_env = {key: os.environ.get(key) for key in [
+                "AUTH_ENABLED",
+                "AUTH_PROVIDER",
+                "SECRET_KEY",
+                "ALLOWED_GOOGLE_DOMAIN",
+                "AUTH_ROLE_EDITOR_GROUPS",
+            ]}
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                app_module.catalog.create_subject("Mathematik 1", "M1")
+                os.environ["AUTH_ENABLED"] = "true"
+                os.environ["AUTH_PROVIDER"] = "forward_auth"
+                os.environ["SECRET_KEY"] = "test-secret"
+                os.environ["ALLOWED_GOOGLE_DOMAIN"] = "forum-wi.de"
+                os.environ["AUTH_ROLE_EDITOR_GROUPS"] = "Referat Altklausuren"
+
+                response = app_module.app.test_client().get(
+                    "/",
+                    headers={
+                        "X-authentik-email": "editor@forum-wi.de",
+                        "X-authentik-name": "Editor User",
+                        "X-authentik-groups": "Referat Altklausuren",
+                    },
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b"editor", response.data)
+            finally:
+                app_module.catalog = original_catalog
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    def test_forward_auth_rejects_user_without_mapped_role(self):
+        old_env = {key: os.environ.get(key) for key in [
+            "AUTH_ENABLED",
+            "AUTH_PROVIDER",
+            "SECRET_KEY",
+            "ALLOWED_GOOGLE_DOMAIN",
+            "AUTH_ROLE_VIEWER_GROUPS",
+            "AUTH_ROLE_EDITOR_GROUPS",
+            "AUTH_ROLE_ADMIN_GROUPS",
+            "FORWARD_AUTH_DEFAULT_ROLE",
+        ]}
+        try:
+            os.environ["AUTH_ENABLED"] = "true"
+            os.environ["AUTH_PROVIDER"] = "forward_auth"
+            os.environ["SECRET_KEY"] = "test-secret"
+            os.environ["ALLOWED_GOOGLE_DOMAIN"] = "forum-wi.de"
+            os.environ["AUTH_ROLE_VIEWER_GROUPS"] = "Altklausuren Viewer"
+            os.environ["AUTH_ROLE_EDITOR_GROUPS"] = "Altklausuren Editor"
+            os.environ["AUTH_ROLE_ADMIN_GROUPS"] = "Altklausuren Admin"
+            os.environ["FORWARD_AUTH_DEFAULT_ROLE"] = ""
+
+            response = app_module.app.test_client().get(
+                "/",
+                headers={
+                    "X-authentik-email": "person@forum-wi.de",
+                    "X-authentik-groups": "Andere Gruppe",
+                },
+            )
+
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("/login", response.headers["Location"])
+        finally:
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 if __name__ == "__main__":

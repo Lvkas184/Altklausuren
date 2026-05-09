@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from drive_client import extract_drive_id
+from drive_client import DriveClient, extract_drive_id
 from drive_sync import sync_local_folder
 from pypdf import PdfReader, PdfWriter
 
@@ -14,6 +14,17 @@ class DriveClientTest(unittest.TestCase):
 
     def test_extract_drive_id_accepts_raw_id(self):
         self.assertEqual(extract_drive_id("abc123"), "abc123")
+
+    def test_credentials_mode_detects_missing_and_service_account(self):
+        with TemporaryDirectory() as temp:
+            credentials_dir = Path(temp) / "credentials"
+            client = DriveClient(credentials_dir)
+            self.assertEqual(client.credentials_mode(), "missing")
+
+            credentials_dir.mkdir(parents=True)
+            (credentials_dir / "service_account.json").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(client.credentials_mode(), "service_account")
 
     def test_sync_local_folder_imports_pdf_as_subject(self):
         with TemporaryDirectory() as temp:

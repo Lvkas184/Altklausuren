@@ -41,6 +41,25 @@ class DriveClient:
         self.credentials_dir.mkdir(parents=True, exist_ok=True)
         self.token_path.write_text(credentials.to_json(), encoding="utf-8")
 
+    def credentials_mode(self) -> str:
+        if self.service_account_path.exists():
+            return "service_account"
+        if self.token_path.exists():
+            return "oauth_token"
+        return "missing"
+
+    def check_access(self, root_url: str) -> dict:
+        folder_id = extract_drive_id(root_url)
+        service = self._service()
+        metadata = self._get_metadata(service, folder_id)
+        return {
+            "credential_mode": self.credentials_mode(),
+            "folder_id": metadata.get("id", folder_id),
+            "folder_name": metadata.get("name", ""),
+            "mime_type": metadata.get("mimeType", ""),
+            "web_view_link": metadata.get("webViewLink", ""),
+        }
+
     def list_pdfs_recursive(self, root_url: str) -> list[dict]:
         folder_id = extract_drive_id(root_url)
         service = self._service()

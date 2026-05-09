@@ -35,6 +35,7 @@ if (dropzone && input && label) {
 
 const search = document.querySelector("#catalog-search");
 const cards = Array.from(document.querySelectorAll(".subject-card"));
+const categorySections = Array.from(document.querySelectorAll("[data-category-section]"));
 const noResults = document.querySelector("#no-results");
 const previewTitle = document.querySelector("#preview-title");
 const previewFrame = document.querySelector("#preview-frame");
@@ -59,8 +60,27 @@ if (search && cards.length > 0) {
     if (noResults) {
       noResults.classList.toggle("hidden", visibleCount !== 0);
     }
+
+    categorySections.forEach((section) => {
+      const visibleCards = section.querySelectorAll(".subject-card:not(.is-hidden)").length;
+      section.classList.toggle("is-hidden", visibleCards === 0);
+      if (query) {
+        section.classList.remove("is-collapsed");
+      }
+    });
   });
 }
+
+document.querySelectorAll("[data-category-toggle]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const section = button.closest("[data-category-section]");
+    if (!section) {
+      return;
+    }
+    const collapsed = section.classList.toggle("is-collapsed");
+    button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  });
+});
 
 document.querySelectorAll(".preview-button").forEach((button) => {
   button.addEventListener("click", () => {

@@ -1,0 +1,11 @@
+[Unit]
+Description=Altklausuren Google Drive poll
+After=network.target
+
+[Service]
+Type=oneshot
+User=altklausuren
+Group=altklausuren
+WorkingDirectory=/opt/altklausuren
+EnvironmentFile=/etc/altklausuren/altklausuren.env
+ExecStart=/opt/altklausuren/.venv/bin/python drive_tools.py poll

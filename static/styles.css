@@ -19,6 +19,74 @@ body {
   margin: 0;
 }
 
+.login-body {
+  min-height: 100vh;
+  background: #1f1f1f;
+  color: #f6f6f2;
+}
+
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(460px, 100%);
+  padding: 16px 16px 14px;
+  border: 1px solid #3b3b3b;
+  border-radius: 5px;
+  background: #202020;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+
+.login-card h1 {
+  margin-bottom: 46px;
+  color: #fff;
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.login-card p {
+  margin-bottom: 16px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.google-login-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 2px auto 12px;
+  padding: 0 14px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  background: #fff;
+  color: #3c4043;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.google-mark {
+  color: #4285f4;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.login-card .login-meta {
+  margin: 0;
+  color: #bfc3c7;
+  font-size: 12px;
+}
+
 button,
 input,
 select,
@@ -390,7 +458,78 @@ button.small-action {
 
 .subject-list {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.category-section {
+  display: grid;
+  gap: 8px;
+}
+
+.category-section.is-hidden {
+  display: none;
+}
+
+.category-header {
+  display: grid;
+  width: 100%;
+  min-height: 52px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 18px;
+  gap: 10px;
+  align-items: center;
+  justify-content: start;
+  padding: 0 14px;
+  border: 1px solid #cfd6cf;
+  border-left: 4px solid var(--primary);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.category-header small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.category-header::after {
+  content: "▾";
+  grid-column: 4;
+  color: var(--muted);
+}
+
+.category-section.is-collapsed .category-header::after {
+  content: "▸";
+}
+
+.category-section.is-collapsed .category-items {
+  display: none;
+}
+
+.folder-icon {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 16px;
+  border-radius: 3px;
+  background: #263239;
+}
+
+.folder-icon::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -4px;
+  width: 9px;
+  height: 5px;
+  border-radius: 3px 3px 0 0;
+  background: #263239;
+}
+
+.category-items {
+  display: grid;
+  gap: 8px;
+  padding-left: 14px;
 }
 
 .subject-card {
