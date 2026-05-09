@@ -117,7 +117,7 @@ def require_login():
     if not auth_config.enabled:
         return None
 
-    public_endpoints = {"healthz", "favicon", "login", "google_login", "auth_callback", "logout", "static"}
+    public_endpoints = {"healthz", "favicon", "login", "google_login", "auth_callback", "logout", "continue_forward_auth_login", "static"}
     if request.endpoint in public_endpoints:
         return None
 
@@ -219,6 +219,12 @@ def auth_callback():
     next_url = session.pop("login_next", "")
     if _is_safe_next(next_url):
         return redirect(next_url)
+    return redirect(url_for("index"))
+
+
+@app.get("/login/continue")
+def continue_forward_auth_login():
+    session.pop("logged_out", None)
     return redirect(url_for("index"))
 
 

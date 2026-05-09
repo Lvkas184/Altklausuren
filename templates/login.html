@@ -12,13 +12,16 @@
         <h1 id="login-title">Anmelden im Altklausuren-System</h1>
         {% if auth_provider == "forward_auth" %}
           <p>
-            Die Anmeldung läuft ueber den ForumWI-Login. Wenn Du diese Seite siehst,
+            Die Anmeldung läuft über den ForumWI-Login. Wenn Du diese Seite siehst,
             wurde keine gültige ForumWI-Sitzung an die App übergeben.
           </p>
           <p>
             Zugelassen sind @{{ allowed_domain }}-Konten mit einer passenden Gruppe
-            oder Berechtigung fuer die Altklausuren-App.
+            oder Berechtigung für die Altklausuren-App.
           </p>
+          <a class="google-login-button" href="{{ url_for('continue_forward_auth_login') }}">
+            <span>Mit ForumWI anmelden</span>
+          </a>
         {% else %}
           <p>
             Bitte melde Dich mit dem Google-Account des Forum Wirtschaftsinformatik an.
