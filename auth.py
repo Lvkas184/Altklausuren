@@ -115,6 +115,7 @@ def current_user() -> dict | None:
 def clear_user() -> None:
     session.pop("user", None)
     session.pop("oauth_state", None)
+    session["logged_out"] = True
 
 
 def build_login_url(config: AuthConfig) -> str:

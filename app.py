@@ -121,6 +121,9 @@ def require_login():
     if request.endpoint in public_endpoints:
         return None
 
+    if session.pop("logged_out", False):
+        return redirect(url_for("login", next=request.full_path))
+
     if auth_config.provider == "forward_auth":
         try:
             forwarded_user = user_from_forward_auth(auth_config, request)
@@ -169,6 +172,7 @@ def login():
             forwarded_user = None
         if forwarded_user:
             session["user"] = forwarded_user
+            session.pop("logged_out", None)
             next_url = session.pop("login_next", "")
             if _is_safe_next(next_url):
                 return redirect(next_url)

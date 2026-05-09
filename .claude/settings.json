@@ -12,7 +12,8 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(git commit -m 'chore: Increase main list width by reducing preview pane from 380px to 320px *)",
-      "Bash(git commit -m 'chore: Fix remaining umlauts \\(dürfen, für, enthält, unverändert, führe\\) *)"
+      "Bash(git commit -m 'chore: Fix remaining umlauts \\(dürfen, für, enthält, unverändert, führe\\) *)",
+      "Bash(git commit -m 'feat: Implement proper logout in Forward-Auth dev mode *)"
     ]
   }
 }
