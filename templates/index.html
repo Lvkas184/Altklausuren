@@ -254,7 +254,7 @@
                                 Einzelseiten
                               </button>
                             {% else %}
-                              <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF laden</a>
+                              <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF Herunterladen</a>
                             {% endif %}
                             <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
                           {% else %}
@@ -277,7 +277,7 @@
                     <p class="eyebrow">Vorschau</p>
                     <h3 id="preview-title">{{ first_ready.title }}</h3>
                   </div>
-                  <a id="preview-download" href="{{ url_for('current_pdf', subject_id=first_ready.id) }}">PDF laden</a>
+                  <a id="preview-download" href="{{ url_for('current_pdf', subject_id=first_ready.id) }}">PDF Herunterladen</a>
                 </div>
                 <iframe id="preview-frame" src="{{ url_for('preview_pdf', subject_id=first_ready.id) }}" title="PDF-Vorschau"></iframe>
               {% else %}
