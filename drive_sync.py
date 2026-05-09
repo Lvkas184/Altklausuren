@@ -137,7 +137,7 @@ def push_subject_to_drive(
     subject_dir = catalog.subject_dir(subject_id)
     current_path = subject_dir / "current.pdf"
     if not current_path.exists():
-        catalog.set_sync_status(subject_id, ERROR, "Es gibt keine lokale current.pdf fuer dieses Fach.")
+        catalog.set_sync_status(subject_id, ERROR, "Es gibt keine lokale current.pdf für dieses Fach.")
         return {"status": ERROR, "pushed": False}
 
     single_path = subject_dir / "single.pdf"

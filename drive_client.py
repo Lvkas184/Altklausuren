@@ -185,7 +185,7 @@ class DriveClient:
         if not self.token_path.exists():
             raise DriveSetupError(
                 "Google Drive ist noch nicht autorisiert. Lege data/credentials/service_account.json ab "
-                "oder fuehre `python3 drive_tools.py authorize` aus."
+                "oder führe `python3 drive_tools.py authorize` aus."
             )
 
         credentials = Credentials.from_authorized_user_info(json.loads(self.token_path.read_text(encoding="utf-8")), SCOPES)
@@ -193,7 +193,7 @@ class DriveClient:
             credentials.refresh(Request())
             self.token_path.write_text(credentials.to_json(), encoding="utf-8")
         if not credentials.valid:
-            raise DriveSetupError("Das Google-Token ist ungültig. Fuehre `python3 drive_tools.py authorize` erneut aus.")
+            raise DriveSetupError("Das Google-Token ist ungültig. Führe `python3 drive_tools.py authorize` erneut aus.")
         return credentials
 
     def _walk_folder(self, service, folder_id: str, folder_path: str, files: list[dict]) -> None:

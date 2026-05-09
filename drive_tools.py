@@ -24,7 +24,7 @@ DATA_DIR = Path(os.getenv("ALTKLAUSUREN_DATA_DIR", BASE_DIR / "data")).expanduse
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Google-Drive-Werkzeuge fuer die Altklausuren-App")
+    parser = argparse.ArgumentParser(description="Google-Drive-Werkzeuge für die Altklausuren-App")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("authorize", help="Google OAuth Login starten und Token lokal speichern")
@@ -50,7 +50,7 @@ def main() -> int:
     push_parser.add_argument("subject_id", help="Fach-ID")
     push_parser.add_argument("--force", action="store_true", help="Drive-Konflikt bewusst ueberschreiben")
 
-    accept_parser = subparsers.add_parser("accept-drive", help="Drive-Version fuer ein Fach lokal übernehmen")
+    accept_parser = subparsers.add_parser("accept-drive", help="Drive-Version für ein Fach lokal übernehmen")
     accept_parser.add_argument("subject_id", help="Fach-ID")
 
     args = parser.parse_args()
@@ -80,7 +80,7 @@ def main() -> int:
             result = sync_drive_folder(data_dir=DATA_DIR, root_url=args.root_url, include_all=args.all)
             print(
                 f"{result['found']} PDFs gefunden, {result['imported']} importiert, "
-                f"{result['skipped']} unveraendert."
+                f"{result['skipped']} unverändert."
             )
         elif args.command == "local-sync":
             from drive_sync import sync_local_folder
@@ -88,7 +88,7 @@ def main() -> int:
             result = sync_local_folder(data_dir=DATA_DIR, root_path=args.root_path)
             print(
                 f"{result['found']} PDFs gefunden, {result['imported']} importiert, "
-                f"{result['skipped']} unveraendert."
+                f"{result['skipped']} unverändert."
             )
         elif args.command == "poll":
             result = poll_drive_changes(data_dir=DATA_DIR)

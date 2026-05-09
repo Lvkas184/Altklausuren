@@ -91,7 +91,7 @@ def require_role(min_role: str):
         @wraps(route)
         def wrapped(*args, **kwargs):
             if not can(min_role):
-                flash("Dafuer fehlen dir die Rechte.", "error")
+                flash("Dafür fehlen dir die Rechte.", "error")
                 return redirect(url_for("index"))
             return route(*args, **kwargs)
 
@@ -487,7 +487,7 @@ def import_subject_collection(subject_id: str):
         flash("Die importierte Datei konnte nicht als PDF gelesen werden.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
     if pages == 0:
-        flash("Die importierte PDF enthaelt keine Seiten.", "error")
+        flash("Die importierte PDF enthält keine Seiten.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
 
     current_path = subject_dir / "current.pdf"
@@ -644,7 +644,7 @@ def sync_drive():
 
     flash(
         f"Drive-Sync abgeschlossen: {result['found']} PDFs gefunden, "
-        f"{result['imported']} importiert, {result['skipped']} unveraendert.",
+        f"{result['imported']} importiert, {result['skipped']} unverändert.",
         "success",
     )
     return redirect(url_for("index"))
@@ -670,7 +670,7 @@ def sync_local_drive():
 
     flash(
         f"Lokaler Sync abgeschlossen: {result['found']} PDFs gefunden, "
-        f"{result['imported']} importiert, {result['skipped']} unveraendert.",
+        f"{result['imported']} importiert, {result['skipped']} unverändert.",
         "success",
     )
     return redirect(url_for("index"))

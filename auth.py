@@ -170,7 +170,7 @@ def handle_callback(config: AuthConfig, request: Request) -> dict:
     if claims.get("email_verified") is not True:
         raise AuthError("Die Google-Mailadresse ist nicht verifiziert.")
     if config.allowed_domain and not email.endswith(f"@{config.allowed_domain}"):
-        raise AuthError(f"Nur Konten der Domain {config.allowed_domain} duerfen diese App verwenden.")
+        raise AuthError(f"Nur Konten der Domain {config.allowed_domain} dürfen diese App verwenden.")
 
     drive_access = check_drive_access(token_data["access_token"], config.drive_folder_id)
     if not drive_access["allowed"]:
@@ -204,13 +204,13 @@ def _user_from_authentik_headers(config: AuthConfig, request: Request) -> dict |
         return None
 
     if email and config.allowed_domain and not email.lower().endswith(f"@{config.allowed_domain.lower()}"):
-        raise AuthError(f"Nur Konten der Domain {config.allowed_domain} duerfen diese App verwenden.")
+        raise AuthError(f"Nur Konten der Domain {config.allowed_domain} dürfen diese App verwenden.")
 
     groups = _split_header_values(request.headers.get("X-authentik-groups", ""))
     entitlements = _split_header_values(request.headers.get("X-authentik-entitlements", ""))
     role = _role_from_claims(email=email, groups=groups, entitlements=entitlements, default_role=config.forward_default_role)
     if not role:
-        raise AuthError("Dein ForumWI-Konto hat keine Berechtigung fuer die Altklausuren-App.")
+        raise AuthError("Dein ForumWI-Konto hat keine Berechtigung für die Altklausuren-App.")
 
     return {
         "email": email or username,

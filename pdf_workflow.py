@@ -37,7 +37,7 @@ def append_submission(
         raise PdfProcessingError("Die hochgeladene Datei konnte nicht als PDF gelesen werden.") from exc
 
     if len(incoming_reader.pages) == 0:
-        raise PdfProcessingError("Die hochgeladene PDF enthaelt keine Seiten.")
+        raise PdfProcessingError("Die hochgeladene PDF enthält keine Seiten.")
 
     uploaded_start = 1 if strip_uploaded_cover and len(incoming_reader.pages) > 1 else 0
     if strip_uploaded_cover and len(incoming_reader.pages) == 1:
@@ -195,7 +195,7 @@ def _validate_pdf(path: Path) -> PdfReader:
     except Exception as exc:
         raise PdfProcessingError("Eine gespeicherte PDF konnte nicht gelesen werden.") from exc
     if len(reader.pages) == 0:
-        raise PdfProcessingError("Eine gespeicherte PDF enthaelt keine Seiten.")
+        raise PdfProcessingError("Eine gespeicherte PDF enthält keine Seiten.")
     return reader
 
 
