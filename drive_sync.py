@@ -181,7 +181,7 @@ def push_subject_to_drive(
             {
                 "sync_status": UNMAPPED,
                 "drive_file_id": "",
-                "last_sync_error": "Drive-Datei wurde geloescht oder ist nicht mehr erreichbar.",
+                "last_sync_error": "Drive-Datei wurde gelöscht oder ist nicht mehr erreichbar.",
                 "last_sync_attempt_at": _now(),
             },
         )
@@ -262,7 +262,7 @@ def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None) -> 
                 {
                     "sync_status": UNMAPPED,
                     "drive_file_id": "",
-                    "last_sync_error": "Drive-Datei wurde geloescht oder ist nicht mehr erreichbar.",
+                    "last_sync_error": "Drive-Datei wurde gelöscht oder ist nicht mehr erreichbar.",
                     "last_sync_attempt_at": _now(),
                 },
             )

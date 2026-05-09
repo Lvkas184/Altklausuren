@@ -573,7 +573,7 @@ button.small-action {
 
 .catalog-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 290px;
   gap: 20px;
   align-items: start;
 }

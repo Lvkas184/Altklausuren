@@ -14,7 +14,7 @@
           <div>
             <p class="eyebrow">Referat Altklausuren</p>
             <h1>{{ subject.title }}</h1>
-            <p class="subtitle">{{ subject.submissions|length }} Eintraege, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
+            <p class="subtitle">{{ subject.submissions|length }} Einträge, {{ subject.current_pages }} Seiten{% if subject.code %}, {{ subject.code }}{% endif %}</p>
           </div>
         </div>
         <div class="top-actions">
@@ -93,7 +93,7 @@
                             <input name="instructor" value="{{ submission.instructor }}">
                           </label>
                           <label>
-                            Loesung
+                            Lösung
                             <select name="solution">
                               <option value="" {% if not submission.solution %}selected{% endif %}>unbekannt</option>
                               <option value="Ja" {% if submission.solution == 'Ja' %}selected{% endif %}>Ja</option>
@@ -125,14 +125,14 @@
                         </div>
                       </form>
                       <form action="{{ url_for('delete_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="delete-form">
-                        <button type="submit" class="danger small-action">Loeschen</button>
+                        <button type="submit" class="danger small-action">Löschen</button>
                       </form>
                     {% else %}
                       <div class="submission-readonly">
                         <div class="submission-tags">
                           <span class="tag">{{ submission.kind }}</span>
                           {% if submission.term %}<span class="tag muted">{{ submission.term }}</span>{% endif %}
-                          {% if submission.solution %}<span class="tag muted">Loesung: {{ submission.solution }}</span>{% endif %}
+                          {% if submission.solution %}<span class="tag muted">Lösung: {{ submission.solution }}</span>{% endif %}
                         </div>
                         <p class="submission-line">
                           {% if submission.exam_date %}{{ submission.exam_date }}{% endif %}
@@ -157,7 +157,7 @@
             <h2>Drive-Sync</h2>
             {% set sync = subject.drive_sync or {} %}
             <p class="status-line">
-              <span class="badge sync {{ sync.sync_status or 'unmapped' }}">{{ sync.sync_status or 'nicht verknuepft' }}</span>
+              <span class="badge sync {{ sync.sync_status or 'unmapped' }}">{{ sync.sync_status or 'nicht verknüpft' }}</span>
             </p>
             {% if sync.drive_filename %}
               <p class="sync-meta">{{ sync.drive_filename }}</p>
@@ -171,10 +171,10 @@
             {% if can_admin %}
               <div class="stack compact">
                 <form action="{{ url_for('check_subject_drive_version', subject_id=subject.id) }}" method="post">
-                  <button class="secondary" type="submit">Sync pruefen</button>
+                  <button class="secondary" type="submit">Sync prüfen</button>
                 </form>
                 <form action="{{ url_for('accept_subject_drive_version', subject_id=subject.id) }}" method="post">
-                  <button class="secondary" type="submit">Drive-Version uebernehmen</button>
+                  <button class="secondary" type="submit">Drive-Version übernehmen</button>
                 </form>
                 <form action="{{ url_for('force_push_subject_drive_version', subject_id=subject.id) }}" method="post">
                   <button class="danger" type="submit">App-Version hochladen</button>
@@ -184,7 +184,7 @@
                 </form>
               </div>
               <div class="divider"></div>
-              <h3>Drive neu verknuepfen</h3>
+              <h3>Drive neu verknüpfen</h3>
               <form action="{{ url_for('relink_subject_drive', subject_id=subject.id) }}" method="post" class="stack compact">
                 <label>
                   Drive File-ID
@@ -228,11 +228,11 @@
 
           {% if can_edit %}
             <section class="panel">
-              <h2>Neue PDF hinzufuegen</h2>
+              <h2>Neue PDF hinzufügen</h2>
               <form action="{{ url_for('create_subject_submission', subject_id=subject.id) }}" method="post" enctype="multipart/form-data" class="stack compact">
                 <label class="dropzone compact-dropzone">
                   <input name="pdf" type="file" accept="application/pdf" required>
-                  <span>PDF auswaehlen</span>
+                  <span>PDF auswählen</span>
                   <small>Maximal {{ max_upload_mb }} MB</small>
                 </label>
                 <label>
@@ -240,7 +240,7 @@
                   <select name="kind">
                     <option>Gedaechtnisprotokoll</option>
                     <option>Altklausur</option>
-                    <option>Loesungsskizze</option>
+                    <option>Lösungsskizze</option>
                   </select>
                 </label>
                 <label>
@@ -256,7 +256,7 @@
                   <input name="instructor">
                 </label>
                 <label>
-                  Loesung
+                  Lösung
                   <select name="solution">
                     <option value="">unbekannt</option>
                     <option value="Ja">Ja</option>

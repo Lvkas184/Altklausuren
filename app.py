@@ -405,7 +405,7 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
     if push_result["status"] == UNMAPPED:
         flash("PDF wurde lokal erzeugt. Dieses Fach ist noch keiner Drive-Datei zugeordnet.", "error")
     elif push_result["status"] == CONFLICT:
-        flash("PDF wurde lokal erzeugt, aber Drive wurde nicht ueberschrieben, weil dort eine neuere Aenderung liegt.", "error")
+        flash("PDF wurde lokal erzeugt, aber Drive wurde nicht überschrieben, weil dort eine neuere Aenderung liegt.", "error")
     elif push_result["status"] == ERROR:
         flash("PDF wurde lokal erzeugt, aber Drive konnte nicht aktualisiert werden.", "error")
     else:
@@ -440,7 +440,7 @@ def delete_subject_submission(subject_id: str, submission_id: str):
     if not catalog.get_submission(subject_id, submission_id):
         abort(404)
     catalog.delete_submission(subject_id, submission_id)
-    return _regenerate_and_push(subject_id, "Eintrag wurde geloescht.")
+    return _regenerate_and_push(subject_id, "Eintrag wurde gelöscht.")
 
 
 @app.post("/subjects/<subject_id>/submissions/reorder")
@@ -560,7 +560,7 @@ def _regenerate_and_push(subject_id: str, success_message: str):
     if push_result["status"] == UNMAPPED:
         flash(f"{success_message} Dieses Fach ist noch keiner Drive-Datei zugeordnet.", "error")
     elif push_result["status"] == CONFLICT:
-        flash(f"{success_message} Drive wurde wegen eines Konflikts nicht ueberschrieben.", "error")
+        flash(f"{success_message} Drive wurde wegen eines Konflikts nicht überschrieben.", "error")
     elif push_result["status"] == ERROR:
         flash(f"{success_message} Drive konnte nicht aktualisiert werden.", "error")
     else:
@@ -612,7 +612,7 @@ def push_all_to_drive():
             errors += 1
     parts = [f"{pushed} hochgeladen"]
     if skipped:
-        parts.append(f"{skipped} nicht verknuepft")
+        parts.append(f"{skipped} nicht verknüpft")
     if conflicts:
         parts.append(f"{conflicts} Konflikte")
     if errors:
@@ -719,7 +719,7 @@ def check_subject_drive_version(subject_id: str):
         flash(str(exc), "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
     flash(
-        f"Drive-Sync geprueft: {result['checked']} verknuepfte Faecher, "
+        f"Drive-Sync geprueft: {result['checked']} verknüpfte Fächern, "
         f"{result['imported']} neue Drive-Versionen, {result['conflicts']} Konflikte.",
         "success",
     )
@@ -758,7 +758,7 @@ def delete_subject(subject_id: str):
         removed_dir.mkdir(parents=True, exist_ok=True)
         target = removed_dir / f"{subject_id}-{int(time.time())}"
         shutil.move(str(subject_dir), str(target))
-    flash(f"Fach \"{subject['title']}\" wurde geloescht.", "success")
+    flash(f"Fach \"{subject['title']}\" wurde gelöscht.", "success")
     return redirect(url_for("index"))
 
 

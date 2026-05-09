@@ -193,7 +193,7 @@ class DriveClient:
             credentials.refresh(Request())
             self.token_path.write_text(credentials.to_json(), encoding="utf-8")
         if not credentials.valid:
-            raise DriveSetupError("Das Google-Token ist ungueltig. Fuehre `python3 drive_tools.py authorize` erneut aus.")
+            raise DriveSetupError("Das Google-Token ist ungültig. Fuehre `python3 drive_tools.py authorize` erneut aus.")
         return credentials
 
     def _walk_folder(self, service, folder_id: str, folder_path: str, files: list[dict]) -> None:
@@ -235,7 +235,7 @@ class DriveClient:
                 from googleapiclient.errors import HttpError
                 if isinstance(exc, HttpError) and exc.resp.status == 404:
                     raise DriveFileNotFoundError(
-                        f"Drive-Datei nicht gefunden (geloescht?): {file_id}"
+                        f"Drive-Datei nicht gefunden (gelöscht?): {file_id}"
                     ) from exc
             except ImportError:
                 pass

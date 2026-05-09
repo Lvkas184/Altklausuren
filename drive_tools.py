@@ -29,7 +29,7 @@ def main() -> int:
 
     subparsers.add_parser("authorize", help="Google OAuth Login starten und Token lokal speichern")
 
-    check_parser = subparsers.add_parser("check", help="Drive-Zugriff mit den aktuellen Credentials pruefen")
+    check_parser = subparsers.add_parser("check", help="Drive-Zugriff mit den aktuellen Credentials prüfen")
     check_parser.add_argument("root_url", nargs="?", help="Google-Drive-Ordner-URL oder Ordner-ID")
 
     list_parser = subparsers.add_parser("list", help="Drive-PDFs anzeigen, ohne sie zu importieren")
@@ -44,13 +44,13 @@ def main() -> int:
     local_sync_parser = subparsers.add_parser("local-sync", help="Lokalen Drive-Desktop-Ordner importieren")
     local_sync_parser.add_argument("root_path", help="Lokaler Ordnerpfad")
 
-    poll_parser = subparsers.add_parser("poll", help="Drive-Dateien auf externe Aenderungen pruefen")
+    poll_parser = subparsers.add_parser("poll", help="Drive-Dateien auf externe Änderungen prüfen")
 
     push_parser = subparsers.add_parser("push", help="Lokale Fach-PDF nach Drive hochladen")
     push_parser.add_argument("subject_id", help="Fach-ID")
     push_parser.add_argument("--force", action="store_true", help="Drive-Konflikt bewusst ueberschreiben")
 
-    accept_parser = subparsers.add_parser("accept-drive", help="Drive-Version fuer ein Fach lokal uebernehmen")
+    accept_parser = subparsers.add_parser("accept-drive", help="Drive-Version fuer ein Fach lokal übernehmen")
     accept_parser.add_argument("subject_id", help="Fach-ID")
 
     args = parser.parse_args()
@@ -93,7 +93,7 @@ def main() -> int:
         elif args.command == "poll":
             result = poll_drive_changes(data_dir=DATA_DIR)
             print(
-                f"{result['checked']} Faecher geprueft, {result['imported']} Drive-Aenderungen importiert, "
+                f"{result['checked']} Fächern geprueft, {result['imported']} Drive-Änderungen importiert, "
                 f"{result['conflicts']} Konflikte, {result['errors']} Fehler."
             )
         elif args.command == "push":

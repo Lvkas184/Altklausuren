@@ -144,7 +144,7 @@ def handle_callback(config: AuthConfig, request: Request) -> dict:
     config.validate()
     expected_state = session.get("oauth_state")
     if not expected_state or request.args.get("state") != expected_state:
-        raise AuthError("OAuth-State ist ungueltig. Bitte erneut anmelden.")
+        raise AuthError("OAuth-State ist ungültig. Bitte erneut anmelden.")
 
     code = request.args.get("code")
     if not code:

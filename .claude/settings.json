@@ -6,7 +6,12 @@
       "Bash(python3 app.py)",
       "Bash(disown)",
       "Bash(curl -s http://localhost:5001/healthz)",
-      "Bash(git -C /Users/lukas184/Altklausuren/Altklausuren remote -v)"
+      "Bash(git -C /Users/lukas184/Altklausuren/Altklausuren remote -v)",
+      "Bash(git add *)",
+      "Bash(git restore *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit -m 'chore: Increase main list width by reducing preview pane from 380px to 320px *)"
     ]
   }
 }

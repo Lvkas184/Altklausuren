@@ -24,16 +24,6 @@
               <a href="{{ url_for('logout') }}">Abmelden</a>
             </div>
           {% endif %}
-          <div class="stats">
-            <div class="stat">
-              <span>{{ subjects|length }}</span>
-              <small>Faecher</small>
-            </div>
-            <div class="stat">
-              <span>{{ ready_count }}</span>
-              <small>druckbereit</small>
-            </div>
-          </div>
         </div>
       </header>
 
@@ -65,7 +55,7 @@
 
             <label class="dropzone" id="dropzone">
               <input id="pdf" name="pdf" type="file" accept="application/pdf" required>
-              <span id="drop-label">PDF hier ablegen oder auswaehlen</span>
+              <span id="drop-label">PDF hier ablegen oder auswählen</span>
               <small>Maximal {{ max_upload_mb }} MB</small>
             </label>
 
@@ -178,7 +168,7 @@
             <div class="divider"></div>
 
             <form action="{{ url_for('push_all_to_drive') }}" method="post" class="stack compact drive-sync-form">
-              <button type="submit">Alle Faecher nach Drive pushen</button>
+              <button type="submit">Alle Fächern nach Drive pushen</button>
             </form>
             <p class="sync-meta">Pusht aktuelle.pdf (bzw. einzelseiten.pdf) fuer jedes verknuepfte Fach.</p>
             <p class="sync-meta">Auto-Poll: systemd-Timer oder Cron mit <code>python3 drive_tools.py poll</code> alle 5 Minuten.</p>
@@ -207,7 +197,7 @@
                   <button type="button" class="category-header" data-category-toggle aria-expanded="true">
                     <span class="folder-icon" aria-hidden="true"></span>
                     <span>{{ category.name }}</span>
-                    <small>{{ category.subjects|length }} Sammlungen, {{ category.ready_count }} druckbereit</small>
+                    <small>{{ category.subjects|length }} Sammlungen, {{ category.ready_count }} Druckbereit</small>
                   </button>
                   <div class="category-items">
                     {% for subject in category.subjects %}
@@ -220,7 +210,7 @@
                           <div class="card-title">
                             <a class="title-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">{{ subject.title }}</a>
                             {% if subject.has_current_pdf %}
-                              <span class="badge ready">druckbereit</span>
+                              <span class="badge ready">Druckbereit</span>
                             {% else %}
                               <span class="badge muted">leer</span>
                             {% endif %}
@@ -283,7 +273,7 @@
               {% else %}
                 <div class="preview-empty">
                   <p class="eyebrow">Vorschau</p>
-                  <h3>Noch keine druckbereite Sammlung</h3>
+                  <h3>Noch keine Druckbereite Sammlung</h3>
                   <p>Nach dem ersten Upload erscheint hier die PDF so, wie sie spaeter ausgegeben werden kann.</p>
                 </div>
               {% endif %}
