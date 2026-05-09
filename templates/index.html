@@ -47,6 +47,7 @@
         {% endif %}
       {% endwith %}
 
+      {% if can_edit or can_admin %}
       <section class="workspace">
         {% if can_edit %}
         <div class="panel upload-panel">
@@ -174,11 +175,18 @@
             {% else %}
               <p class="sync-meta">API-Sync braucht vorher OAuth und Google Cloud.</p>
             {% endif %}
-            <p class="sync-meta">Worker: <code>python3 drive_tools.py poll</code> alle 5 Minuten per cron/systemd ausfuehren.</p>
+            <div class="divider"></div>
+
+            <form action="{{ url_for('push_all_to_drive') }}" method="post" class="stack compact drive-sync-form">
+              <button type="submit">Alle Faecher nach Drive pushen</button>
+            </form>
+            <p class="sync-meta">Pusht aktuelle.pdf (bzw. einzelseiten.pdf) fuer jedes verknuepfte Fach.</p>
+            <p class="sync-meta">Auto-Poll: systemd-Timer oder Cron mit <code>python3 drive_tools.py poll</code> alle 5 Minuten.</p>
           </section>
           {% endif %}
         </aside>
       </section>
+      {% endif %}
 
       <section class="subjects">
         <div class="section-head">

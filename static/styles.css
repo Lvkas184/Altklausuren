@@ -893,6 +893,43 @@ button.small-action {
   margin-top: 20px;
 }
 
+.submission-readonly {
+  display: grid;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.submission-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.submission-line {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  background: var(--primary);
+  color: var(--dark);
+}
+
+.tag.muted {
+  background: #ebebeb;
+  color: var(--muted);
+}
+
 /* ── PRINT PAGE ─────────────────────────────────────────── */
 
 .print-body {

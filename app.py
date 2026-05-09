@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import os
 import shutil
+import time
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -590,6 +591,39 @@ def update_drive_config():
     return redirect(url_for("index"))
 
 
+@app.post("/drive/push-all")
+@require_role("admin")
+def push_all_to_drive():
+    subjects = catalog.list_subjects()
+    pushed = skipped = conflicts = errors = 0
+    for subject in subjects:
+        try:
+            result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject["id"])
+            status = result["status"]
+            if status == SYNCED:
+                pushed += 1
+            elif status == UNMAPPED:
+                skipped += 1
+            elif status == CONFLICT:
+                conflicts += 1
+            else:
+                errors += 1
+        except DriveSetupError:
+            errors += 1
+    parts = [f"{pushed} hochgeladen"]
+    if skipped:
+        parts.append(f"{skipped} nicht verknuepft")
+    if conflicts:
+        parts.append(f"{conflicts} Konflikte")
+    if errors:
+        parts.append(f"{errors} Fehler")
+    flash(
+        "Sync abgeschlossen: " + ", ".join(parts) + ".",
+        "error" if errors or conflicts else "success",
+    )
+    return redirect(url_for("index"))
+
+
 @app.post("/drive/sync")
 @require_role("admin")
 def sync_drive():
@@ -708,6 +742,63 @@ def dismiss_subject_drive_conflict(subject_id: str):
         },
     )
     flash("Konfliktstatus wurde verworfen. Beim naechsten Sync wird Drive erneut geprueft.", "success")
+    return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+@app.post("/subjects/<subject_id>/delete")
+@require_role("admin")
+def delete_subject(subject_id: str):
+    subject = catalog.get_subject(subject_id)
+    if not subject:
+        abort(404)
+    catalog.delete_subject(subject_id)
+    subject_dir = catalog.subject_dir(subject_id)
+    if subject_dir.exists():
+        removed_dir = subject_dir.parent / "_removed"
+        removed_dir.mkdir(parents=True, exist_ok=True)
+        target = removed_dir / f"{subject_id}-{int(time.time())}"
+        shutil.move(str(subject_dir), str(target))
+    flash(f"Fach \"{subject['title']}\" wurde geloescht.", "success")
+    return redirect(url_for("index"))
+
+
+@app.post("/subjects/<subject_id>/update")
+@require_role("admin")
+def update_subject(subject_id: str):
+    if not catalog.get_subject(subject_id):
+        abort(404)
+    title = request.form.get("title", "").strip()
+    code = request.form.get("code", "").strip()
+    if not title:
+        flash("Fachname darf nicht leer sein.", "error")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
+    catalog.update_subject(subject_id, title=title, code=code)
+    flash("Fach wurde umbenannt.", "success")
+    return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+@app.post("/subjects/<subject_id>/drive/relink")
+@require_role("admin")
+def relink_subject_drive(subject_id: str):
+    if not catalog.get_subject(subject_id):
+        abort(404)
+    drive_file_id = request.form.get("drive_file_id", "").strip()
+    drive_folder_id = request.form.get("drive_folder_id", "").strip()
+    drive_filename = request.form.get("drive_filename", "").strip()
+    if not drive_file_id:
+        flash("Drive File-ID darf nicht leer sein.", "error")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
+    catalog.update_drive_sync(
+        subject_id,
+        {
+            "drive_file_id": drive_file_id,
+            "drive_folder_id": drive_folder_id,
+            "drive_filename": drive_filename,
+            "sync_status": SYNCED,
+            "last_sync_error": "",
+        },
+    )
+    flash("Drive-Verknuepfung wurde aktualisiert.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 

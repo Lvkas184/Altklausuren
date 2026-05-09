@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(pkill -f \"python3 app.py\")",
+      "Bash(python3 app.py)",
+      "Bash(disown)",
+      "Bash(curl -s http://localhost:5001/healthz)",
+      "Bash(git -C /Users/lukas184/Altklausuren/Altklausuren remote -v)"
     ]
   }
 }

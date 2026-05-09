@@ -1,0 +1,13 @@
+[Unit]
+Description=Altklausuren – Drive Poll (single run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/altklausuren
+ExecStart=/opt/altklausuren/.venv/bin/python3 drive_tools.py poll
+# Adjust User= to the system account that owns the app
+User=altklausuren
+StandardOutput=journal
+StandardError=journal

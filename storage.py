@@ -192,6 +192,22 @@ class Catalog:
             },
         )
 
+    def delete_subject(self, subject_id: str) -> None:
+        with self._connect() as db:
+            db.execute("delete from subjects where id = ?", (subject_id,))
+            db.commit()
+        self._audit("subject_deleted", subject_id, {})
+
+    def update_subject(self, subject_id: str, title: str, code: str) -> dict | None:
+        with self._connect() as db:
+            db.execute(
+                "update subjects set title = ?, code = ?, updated_at = ? where id = ?",
+                (title, code, _now(), subject_id),
+            )
+            db.commit()
+        self._audit("subject_updated", subject_id, {"title": title, "code": code})
+        return self.get_subject(subject_id)
+
     def subject_dir(self, subject_id: str) -> Path:
         return self.data_dir / "subjects" / subject_id
 
