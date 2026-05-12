@@ -55,6 +55,14 @@
             <button class="secondary small-action" onclick="navigator.clipboard.writeText('{{ session_url }}')">Kopieren</button>
           </section>
 
+          <section class="panel">
+            <h2>Semester</h2>
+            <form action="{{ url_for('update_proto_session_semester', subject_id=subject.id, session_id=session.id) }}" method="post" style="display:flex; gap:0.4rem;">
+              <input name="semester" value="{{ session.semester }}" style="flex:1; font-size:0.85rem; padding:0.3rem 0.5rem;">
+              <button class="secondary" type="submit">Speichern</button>
+            </form>
+          </section>
+
           {% if session.status == 'open' %}
             <section class="panel">
               <h2>Session schließen</h2>

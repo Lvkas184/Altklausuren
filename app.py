@@ -1043,6 +1043,19 @@ def proto_session_contribute(token: str):
     return {"ok": True}
 
 
+@app.post("/subjects/<subject_id>/sessions/<session_id>/semester")
+@require_role("editor")
+def update_proto_session_semester(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    semester = request.form.get("semester", "").strip()
+    with catalog._connect() as db:
+        db.execute("update proto_sessions set semester = ?, updated_at = ? where id = ?",
+                   (semester, datetime.now().isoformat(), session_id))
+    return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
+
+
 @app.post("/subjects/<subject_id>/sessions/<session_id>/close")
 @require_role("editor")
 def close_proto_session(subject_id: str, session_id: str):
