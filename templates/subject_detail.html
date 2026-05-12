@@ -79,11 +79,7 @@
                   <article class="submission-row">
                     {% if can_edit %}
                       <form action="{{ url_for('update_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="submission-form">
-                        <div class="grid four">
-                          <label>
-                            Datum
-                            <input name="exam_date" type="date" value="{{ submission.exam_date }}">
-                          </label>
+                        <div class="grid three">
                           <label>
                             Semester
                             <input name="term" value="{{ submission.term }}" placeholder="WiSe 2025/26">
@@ -124,6 +120,9 @@
                           <button type="submit" class="small-action">Speichern</button>
                         </div>
                       </form>
+                      {% if submission.collection_import %}
+                        <a class="secondary small-action" href="{{ url_for('split_collection_view', subject_id=subject.id, submission_id=submission.id) }}">Sammlung aufteilen</a>
+                      {% endif %}
                       <form action="{{ url_for('delete_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="delete-form">
                         <button type="submit" class="danger small-action">Löschen</button>
                       </form>
@@ -135,7 +134,6 @@
                           {% if submission.solution %}<span class="tag muted">Lösung: {{ submission.solution }}</span>{% endif %}
                         </div>
                         <p class="submission-line">
-                          {% if submission.exam_date %}{{ submission.exam_date }}{% endif %}
                           {% if submission.instructor %}&middot; {{ submission.instructor }}{% endif %}
                           &middot; {{ submission.added_pages }} Seiten
                         </p>
@@ -248,10 +246,6 @@
                   <input name="term" placeholder="z. B. WiSe 2025/26">
                 </label>
                 <label>
-                  Klausurdatum
-                  <input name="exam_date" type="date">
-                </label>
-                <label>
                   Dozent
                   <input name="instructor">
                 </label>
@@ -267,10 +261,7 @@
                   Notiz
                   <textarea name="notes" rows="2"></textarea>
                 </label>
-                <label class="check">
-                  <input name="strip_uploaded_cover" type="checkbox">
-                  <span>Deckblatt der hochgeladenen PDF entfernen</span>
-                </label>
+
                 <button type="submit">Hinzufuegen</button>
               </form>
             </section>

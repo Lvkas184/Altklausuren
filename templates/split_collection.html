@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sammlung aufteilen – {{ subject.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+      .split-layout {
+        display: grid;
+        grid-template-columns: 1fr 480px;
+        gap: 1.5rem;
+        margin: 1.5rem 2rem;
+        align-items: start;
+      }
+      .split-pdf-preview {
+        position: sticky;
+        top: 1rem;
+      }
+      .split-pdf-preview iframe {
+        width: 100%;
+        height: 80vh;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+      }
+      .exam-group {
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        background: #fff;
+      }
+      .exam-group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+      }
+      .exam-group-snippet {
+        font-size: 0.8rem;
+        color: #666;
+        background: #f8f8f8;
+        padding: 0.4rem 0.6rem;
+        border-radius: 4px;
+        margin-bottom: 0.75rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .group-fields {
+        display: grid;
+        grid-template-columns: 80px 80px 1fr;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+      }
+      .group-fields-2 {
+        display: grid;
+        grid-template-columns: 1fr 110px 1fr 1fr;
+        gap: 0.5rem;
+      }
+      .group-fields label,
+      .group-fields-2 label {
+        display: flex;
+        flex-direction: column;
+        font-size: 0.8rem;
+        font-weight: 600;
+        gap: 0.2rem;
+      }
+      .group-fields input,
+      .group-fields-2 input,
+      .group-fields-2 select {
+        font-size: 0.85rem;
+        padding: 0.3rem 0.4rem;
+      }
+      .split-actions {
+        margin-top: 1.5rem;
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar app-header">
+        <div class="brand-lockup">
+          <div class="brand-mark">Forum<br>WI</div>
+          <div>
+            <p class="eyebrow">Referat Altklausuren</p>
+            <h1>{{ subject.title }} – Sammlung aufteilen</h1>
+            <p class="subtitle">{{ groups|length }} Klausuren erkannt – überprüfe Grenzen und ergänze Metadaten.</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="nav-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">← Abbrechen</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <p class="message {{ category }}">{{ message }}</p>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <div class="split-layout">
+        <!-- Linke Seite: Formular -->
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <p style="color:#666; font-size:0.9rem; margin:0;">
+              Passe Seitenbereiche und Metadaten an. Alle Seiten müssen lückenlos abgedeckt sein.
+            </p>
+            <button type="button" class="secondary small-action" id="add-group-btn">+ Neue Klausur manuell hinzufügen</button>
+          </div>
+
+          <form method="post" action="{{ url_for('split_collection_execute', subject_id=subject.id, submission_id=submission.id) }}" id="split-form">
+            <div id="groups-container">
+              {% for group in groups %}
+                {% set i = loop.index0 %}
+                <article class="exam-group" id="group-{{ i }}">
+                  <div class="exam-group-header">
+                    <strong style="color: var(--accent, #c8a000);">Klausur {{ loop.index }} &nbsp;<span style="font-weight:normal; color:#888; font-size:0.85rem;">Seiten {{ group.start_page }}–{{ group.end_page }}</span></strong>
+                    <button type="button" class="danger small-action remove-group-btn">Entfernen</button>
+                  </div>
+
+                  {% if group.snippet %}
+                    <div class="exam-group-snippet" title="{{ group.snippet }}">{{ group.snippet }}</div>
+                  {% endif %}
+
+                  <div class="group-fields">
+                    <label>
+                      Erste Seite
+                      <input name="group_start_{{ i }}" type="number" min="1" value="{{ group.start_page }}" required>
+                    </label>
+                    <label>
+                      Letzte Seite
+                      <input name="group_end_{{ i }}" type="number" min="1" value="{{ group.end_page }}" required>
+                    </label>
+                    <label>
+                      Semester
+                      <input name="group_semester_{{ i }}" value="{{ group.semester }}" placeholder="WiSe 2025/26">
+                    </label>
+                  </div>
+                  <div class="group-fields-2">
+                    <label>
+                      Dozent
+                      <input name="group_instructor_{{ i }}" value="{{ group.instructor }}">
+                    </label>
+                    <label>
+                      Lösung
+                      <select name="group_solution_{{ i }}">
+                        <option value="unbekannt" {% if group.solution == 'unbekannt' or not group.solution %}selected{% endif %}>unbekannt</option>
+                        <option value="Ja" {% if group.solution == 'Ja' %}selected{% endif %}>Ja</option>
+                        <option value="Nein" {% if group.solution == 'Nein' %}selected{% endif %}>Nein</option>
+                      </select>
+                    </label>
+                    <label>
+                      Typ
+                      <select name="group_kind_{{ i }}">
+                        <option value="Deckblatt" {% if group.kind == 'Deckblatt' %}selected{% endif %}>Deckblatt (überspringen)</option>
+                        <option value="Gedaechtnisprotokoll" {% if group.kind == 'Gedaechtnisprotokoll' %}selected{% endif %}>Gedächtnisprotokoll</option>
+                        <option value="Altklausur" {% if group.kind == 'Altklausur' %}selected{% endif %}>Altklausur</option>
+                      </select>
+                    </label>
+                    <label>
+                      Notiz
+                      <input name="group_notes_{{ i }}" value="{{ group.notes }}">
+                    </label>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+
+            <div class="split-actions">
+              <button type="submit" class="primary">Aufteilen und Sammlung neu erzeugen</button>
+              <a href="{{ url_for('subject_detail', subject_id=subject.id) }}" class="nav-link">Abbrechen</a>
+            </div>
+          </form>
+        </div>
+
+        <!-- Rechte Seite: PDF-Vorschau -->
+        <div class="split-pdf-preview">
+          <p class="eyebrow" style="margin-bottom:0.4rem;">PDF-Vorschau</p>
+          <iframe src="{{ url_for('preview_pdf', subject_id=subject.id) }}" title="Vorschau {{ subject.title }}"></iframe>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      let groupCount = {{ groups|length }};
+
+      document.getElementById('add-group-btn').addEventListener('click', function () {
+        const i = groupCount++;
+        const container = document.getElementById('groups-container');
+        const article = document.createElement('article');
+        article.className = 'exam-group';
+        article.id = 'group-' + i;
+        article.innerHTML = `
+          <div class="exam-group-header">
+            <strong style="color:var(--accent,#c8a000);">Neue Klausur</strong>
+            <button type="button" class="danger small-action remove-group-btn">Entfernen</button>
+          </div>
+          <div class="group-fields">
+            <label>Erste Seite<input name="group_start_${i}" type="number" min="1" value="" required></label>
+            <label>Letzte Seite<input name="group_end_${i}" type="number" min="1" value="" required></label>
+            <label>Semester<input name="group_semester_${i}" value="" placeholder="WiSe 2025/26"></label>
+          </div>
+          <div class="group-fields-2">
+            <label>Dozent<input name="group_instructor_${i}" value=""></label>
+            <label>Lösung<select name="group_solution_${i}">
+              <option value="unbekannt" selected>unbekannt</option>
+              <option value="Ja">Ja</option>
+              <option value="Nein">Nein</option>
+            </select></label>
+            <label>Typ<select name="group_kind_${i}">
+              <option value="Deckblatt">Deckblatt (überspringen)</option>
+              <option value="Gedaechtnisprotokoll" selected>Gedächtnisprotokoll</option>
+              <option value="Altklausur">Altklausur</option>
+            </select></label>
+            <label>Notiz<input name="group_notes_${i}" value=""></label>
+          </div>
+        `;
+        container.appendChild(article);
+        article.querySelector('.remove-group-btn').addEventListener('click', removeGroup);
+      });
+
+      document.querySelectorAll('.remove-group-btn').forEach(btn => {
+        btn.addEventListener('click', removeGroup);
+      });
+
+      function removeGroup(e) {
+        const article = e.target.closest('article');
+        if (document.querySelectorAll('#groups-container article').length <= 1) {
+          alert('Mindestens eine Gruppe muss vorhanden sein.');
+          return;
+        }
+        article.remove();
+      }
+    </script>
+  </body>
+</html>

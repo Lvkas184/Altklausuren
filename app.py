@@ -19,7 +19,7 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback, user_from_forward_auth
-from pdf_workflow import PdfProcessingError, append_submission, generate_single_page_pdf, regenerate_current_pdf
+from pdf_workflow import PdfProcessingError, append_submission, detect_exam_boundaries, generate_single_page_pdf, regenerate_current_pdf, split_collection
 from drive_client import DriveSetupError
 from drive_sync import (
     CONFLICT,
@@ -755,6 +755,101 @@ def dismiss_subject_drive_conflict(subject_id: str):
     )
     flash("Konfliktstatus wurde verworfen. Beim naechsten Sync wird Drive erneut geprueft.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+@app.get("/subjects/<subject_id>/submissions/<submission_id>/split")
+@require_role("editor")
+def split_collection_view(subject_id: str, submission_id: str):
+    subject = catalog.get_subject(subject_id)
+    submission = catalog.get_submission(subject_id, submission_id)
+    if not subject or not submission:
+        abort(404)
+    if not submission.get("collection_import"):
+        flash("Nur DRUCK-Importe können aufgeteilt werden.", "error")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
+    subject_dir = catalog.subject_dir(subject_id)
+    try:
+        from pathlib import Path as _Path
+        stored = submission.get("stored_upload", "")
+        pdf_path = _Path(stored) if _Path(stored).is_absolute() else subject_dir / stored
+        groups = detect_exam_boundaries(pdf_path)
+    except Exception:
+        groups = []
+    if not groups:
+        from pypdf import PdfReader as _R
+        try:
+            stored = submission.get("stored_upload", "")
+            pdf_path = subject_dir / stored if not (subject_dir / stored).is_absolute() else _Path(stored)
+            total = len(_R(str(pdf_path)).pages)
+        except Exception:
+            total = 1
+        groups = [{"start_page": 1, "end_page": total, "semester": "", "exam_date": "",
+                   "instructor": "", "solution": "unbekannt", "kind": "Gedaechtnisprotokoll",
+                   "notes": "", "snippet": ""}]
+    return render_template(
+        "split_collection.html",
+        subject=subject,
+        submission=submission,
+        groups=groups,
+        auth_enabled=AuthConfig.from_env().enabled,
+        current_user=current_user(),
+    )
+
+
+@app.post("/subjects/<subject_id>/submissions/<submission_id>/split")
+@require_role("editor")
+def split_collection_execute(subject_id: str, submission_id: str):
+    subject = catalog.get_subject(subject_id)
+    submission = catalog.get_submission(subject_id, submission_id)
+    if not subject or not submission:
+        abort(404)
+
+    indices = sorted({
+        int(k.split("_")[2])
+        for k in request.form
+        if k.startswith("group_start_")
+    })
+
+    groups = []
+    for i in indices:
+        start = request.form.get(f"group_start_{i}", "").strip()
+        end = request.form.get(f"group_end_{i}", "").strip()
+        if not start or not end:
+            continue
+        groups.append({
+            "start_page": int(start),
+            "end_page": int(end),
+            "kind": request.form.get(f"group_kind_{i}", "Gedaechtnisprotokoll").strip(),
+            "semester": request.form.get(f"group_semester_{i}", "").strip(),
+            "exam_date": request.form.get(f"group_exam_date_{i}", "").strip(),
+            "instructor": request.form.get(f"group_instructor_{i}", "").strip(),
+            "solution": request.form.get(f"group_solution_{i}", "unbekannt").strip(),
+            "notes": request.form.get(f"group_notes_{i}", "").strip(),
+        })
+
+    groups = [g for g in groups if g["kind"] != "Deckblatt"]
+
+    if not groups:
+        flash("Keine Gruppen definiert.", "error")
+        return redirect(url_for("split_collection_view", subject_id=subject_id, submission_id=submission_id))
+
+    subject_dir = catalog.subject_dir(subject_id)
+    try:
+        new_submissions = split_collection(
+            subject=subject,
+            subject_dir=subject_dir,
+            source_submission=submission,
+            groups=groups,
+        )
+    except PdfProcessingError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("split_collection_view", subject_id=subject_id, submission_id=submission_id))
+
+    catalog.delete_submission(subject_id, submission_id)
+    for sub in new_submissions:
+        catalog.add_submission(subject_id, sub)
+
+    return _regenerate_and_push(subject_id, f"Sammlung in {len(new_submissions)} Einträge aufgeteilt.")
 
 
 @app.post("/subjects/<subject_id>/delete")

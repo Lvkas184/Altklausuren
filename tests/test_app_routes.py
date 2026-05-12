@@ -289,7 +289,7 @@ class AppRoutesTest(unittest.TestCase):
 
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(b"Anmelden im Altklausuren-System", response.data)
-                self.assertIn(b"Ueber Google anmelden", response.data)
+                self.assertIn("Über Google anmelden".encode(), response.data)
                 self.assertIn(b"/login/google", response.data)
                 with client.session_transaction() as session:
                     self.assertEqual(session["login_next"], "/subjects/mathe")

@@ -94,6 +94,7 @@ def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | No
             },
             current_pages=_page_count(current_path),
         )
+        catalog.add_collection_import_if_missing(subject["id"], current_path, file["name"])
         imported += 1
 
     save_drive_config(
@@ -321,6 +322,7 @@ def sync_local_folder(*, data_dir: Path, root_path: str) -> dict:
             },
             current_pages=_page_count(current_path),
         )
+        catalog.add_collection_import_if_missing(subject["id"], current_path, file_path.name)
         imported += 1
 
     config = load_drive_config(data_dir)

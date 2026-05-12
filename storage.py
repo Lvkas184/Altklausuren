@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -18,6 +19,7 @@ class Catalog:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
         self._migrate_json_catalog()
+        self._migrate_subjects_without_entries()
 
     def list_subjects(self) -> list[dict]:
         with self._connect() as db:
@@ -427,6 +429,45 @@ class Catalog:
         columns = {row["name"] for row in db.execute(f"pragma table_info({table})").fetchall()}
         if column not in columns:
             db.execute(f"alter table {table} add column {column} {definition}")
+
+    def add_collection_import_if_missing(self, subject_id: str, source_pdf: Path, filename: str) -> None:
+        subject = self.get_subject(subject_id)
+        if not subject or subject.get("submissions"):
+            return
+        subject_dir = self.subject_dir(subject_id)
+        incoming_dir = subject_dir / "incoming"
+        incoming_dir.mkdir(parents=True, exist_ok=True)
+        stored_path = incoming_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{filename}"
+        shutil.copy2(source_pdf, stored_path)
+        try:
+            from pypdf import PdfReader
+            pages = len(PdfReader(str(source_pdf)).pages)
+        except Exception:
+            pages = 0
+        self.add_submission(subject_id, {
+            "kind": "Importierte Sammlung",
+            "notes": "Beim Import automatisch erstellt.",
+            "original_filename": filename,
+            "stored_upload": str(stored_path.relative_to(subject_dir)),
+            "added_pages": 0,
+            "existing_body_pages": 0,
+            "current_pages": pages,
+            "export_path": "",
+            "strip_uploaded_cover": False,
+            "collection_import": True,
+        })
+
+    def _migrate_subjects_without_entries(self) -> None:
+        with self._connect() as db:
+            rows = db.execute(
+                "select id from subjects where not exists "
+                "(select 1 from submissions where subject_id = subjects.id)"
+            ).fetchall()
+        for row in rows:
+            subject_id = row["id"]
+            current_path = self.subject_dir(subject_id) / "current.pdf"
+            if current_path.exists():
+                self.add_collection_import_if_missing(subject_id, current_path, "imported.pdf")
 
     def _audit(self, event: str, subject_id: str | None, payload: dict) -> None:
         with self._connect() as db:

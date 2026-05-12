@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import shutil
 import zipfile
 from datetime import datetime
@@ -52,6 +53,11 @@ def append_submission(
     cover_reader = PdfReader(cover_pdf)
     writer.add_page(cover_reader.pages[0])
 
+    added_pages = 0
+    for page in incoming_reader.pages[uploaded_start:]:
+        writer.add_page(page)
+        added_pages += 1
+
     if current_path.exists():
         backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
         shutil.copy2(current_path, backup_path)
@@ -63,11 +69,6 @@ def append_submission(
         for page in current_reader.pages[1:]:
             writer.add_page(page)
             existing_body_pages += 1
-
-    added_pages = 0
-    for page in incoming_reader.pages[uploaded_start:]:
-        writer.add_page(page)
-        added_pages += 1
 
     exports_dir = subject_dir / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
@@ -93,7 +94,11 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
 
     submissions = sorted(
         subject.get("submissions", []),
-        key=lambda item: (int(item.get("sort_order") or 0), item.get("added_at", ""), item.get("id", "")),
+        key=lambda item: (
+            tuple(-x for x in _semester_sort_key(item.get("term", ""))),
+            int(item.get("sort_order") or 0),
+            item.get("added_at", ""),
+        ),
     )
 
     if current_path.exists():
@@ -282,7 +287,7 @@ def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[d
         current_x += width
 
     pdf.setFont("Helvetica", 9)
-    sorted_entries = sorted(entries, key=lambda entry: entry.get("exam_date") or entry.get("term") or "", reverse=True)
+    sorted_entries = sorted(entries, key=lambda entry: tuple(-x for x in _semester_sort_key(entry.get("term", ""))))
     for index, entry in enumerate(sorted_entries[:rows], start=1):
         row_y = y_top - index * row_height - 5.0 * mm
         exam_date = _display_exam_date(entry)
@@ -332,3 +337,157 @@ def _template_logo() -> ImageReader | None:
         return ImageReader(BytesIO(image))
     except Exception:
         return None
+
+
+def detect_exam_boundaries(pdf_path: Path) -> list[dict]:
+    """Analyse each page and propose exam groups based on text patterns."""
+    try:
+        reader = PdfReader(str(pdf_path))
+    except Exception:
+        return []
+
+    total = len(reader.pages)
+    if total == 0:
+        return []
+
+    page_texts = []
+    for page in reader.pages:
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+        page_texts.append(text)
+
+    start_pages = [0]
+    for i in range(1, total):
+        if _is_likely_exam_start(page_texts[i]):
+            start_pages.append(i)
+
+    groups = []
+    for idx, start in enumerate(start_pages):
+        end = start_pages[idx + 1] - 1 if idx + 1 < len(start_pages) else total - 1
+        block_text = " ".join(page_texts[start: end + 1])
+        snippet = " ".join(page_texts[start].split())[:200]
+        groups.append({
+            "start_page": start + 1,
+            "end_page": end + 1,
+            "semester": _extract_semester(block_text),
+            "exam_date": _extract_exam_date(block_text),
+            "instructor": "",
+            "solution": "unbekannt",
+            "kind": "Gedaechtnisprotokoll",
+            "notes": "",
+            "snippet": snippet,
+        })
+
+    return groups
+
+
+def split_collection(
+    *,
+    subject: dict,
+    subject_dir: Path,
+    source_submission: dict,
+    groups: list[dict],
+) -> list[dict]:
+    """Split a collection PDF into individual per-exam PDFs and return submission metadata."""
+    source_path = _stored_upload_path(subject_dir, source_submission)
+    reader = _validate_pdf(source_path)
+    total_pages = len(reader.pages)
+
+    incoming_dir = subject_dir / "incoming"
+    incoming_dir.mkdir(parents=True, exist_ok=True)
+
+    results = []
+    for i, group in enumerate(groups):
+        start = max(1, int(group["start_page"]))
+        end = min(total_pages, int(group["end_page"]))
+        if start > end:
+            continue
+
+        writer = PdfWriter()
+        for page_num in range(start - 1, end):
+            writer.add_page(reader.pages[page_num])
+
+        filename = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-split-{i + 1:02d}.pdf"
+        out_path = incoming_dir / filename
+        with out_path.open("wb") as f:
+            writer.write(f)
+
+        results.append({
+            "kind": group.get("kind") or "Gedaechtnisprotokoll",
+            "term": group.get("semester", ""),
+            "exam_date": group.get("exam_date", ""),
+            "instructor": group.get("instructor", ""),
+            "solution": group.get("solution", "unbekannt"),
+            "notes": group.get("notes", ""),
+            "original_filename": filename,
+            "stored_upload": str(out_path.relative_to(subject_dir)),
+            "added_pages": end - start + 1,
+            "existing_body_pages": 0,
+            "current_pages": end - start + 1,
+            "export_path": "",
+            "strip_uploaded_cover": False,
+            "collection_import": False,
+        })
+
+    return results
+
+
+def _is_likely_exam_start(text: str) -> bool:
+    first = " ".join(text.split())[:300].lower()
+    if re.search(r'\bklausur\b', first):
+        return True
+    if re.search(r'\b(?:wise|sose|ws|ss)\s*\d{2}', first, re.IGNORECASE):
+        return True
+    return False
+
+
+def _extract_semester(text: str) -> str:
+    match = re.search(
+        r'\b((?:WiSe|SoSe|WS|SS)\s*\d{2,4}[/\-]\d{2,4})',
+        text, re.IGNORECASE
+    )
+    if match:
+        return match.group(1).strip()
+    match = re.search(r'\b((?:WiSe|SoSe|WS|SS)\s*\d{2,4})\b', text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def _extract_exam_date(text: str) -> str:
+    match = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b', text)
+    if match:
+        day, month, year = match.groups()
+        year = f"20{year}" if len(year) == 2 else year
+        return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+    match = re.search(r'\b(\d{4})-(\d{2})-(\d{2})\b', text)
+    if match:
+        return match.group(0)
+    return ""
+
+
+def _semester_sort_key(term: str) -> tuple:
+    """Return (year, half) for chronological sorting. SS=0, WS=1.
+    E.g. 'WS 24/25' → (2024, 1), 'SS 2025' → (2025, 0).
+    Returns (-1, -1) when term is empty/unparseable.
+    """
+    if not term:
+        return (-1, -1)
+    t = term.strip()
+    # WS / WiSe: "WS 24/25", "WS 2024/25", "WiSe 24/25"
+    m = re.match(r'(?:WS|WiSe|Wintersemester)\s*(\d{2,4})[/\-]\d{2,4}', t, re.IGNORECASE)
+    if m:
+        year = int(m.group(1))
+        if year < 100:
+            year += 2000
+        return (year, 1)
+    # SS / SoSe: "SS 2025", "SS 25", "SoSe 25"
+    m = re.match(r'(?:SS|SoSe|Sommersemester)\s*(\d{2,4})', t, re.IGNORECASE)
+    if m:
+        year = int(m.group(1))
+        if year < 100:
+            year += 2000
+        return (year, 0)
+    return (-1, -1)
