@@ -1041,7 +1041,7 @@ def proto_session_view(token: str):
     if not contributor_token:
         import secrets
         contributor_token = secrets.token_urlsafe(16)
-        resp.set_cookie(_CONTRIBUTOR_COOKIE, contributor_token, max_age=60 * 60 * 24 * 365, samesite="Lax")
+        resp.set_cookie(_CONTRIBUTOR_COOKIE, contributor_token, max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True)
     return resp
 
 
@@ -1054,6 +1054,7 @@ def proto_session_contribute(token: str):
     if not contributor_token:
         return {"ok": False, "error": "no contributor token"}, 400
     text = (request.json or {}).get("text", "") if request.is_json else request.form.get("text", "")
+    text = text[:50_000]
     catalog.upsert_proto_contribution(session["id"], contributor_token, text)
     return {"ok": True}
 
@@ -1065,10 +1066,7 @@ def update_proto_session_semester(subject_id: str, session_id: str):
     if not session or session["subject_id"] != subject_id:
         abort(404)
     semester = request.form.get("semester", "").strip()
-    with catalog._connect() as db:
-        db.execute("update proto_sessions set semester = ?, updated_at = ? where id = ?",
-                   (semester, datetime.now().isoformat(), session_id))
-        db.commit()
+    catalog.update_proto_session_semester(session_id, semester)
     return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
 
 
@@ -1083,7 +1081,7 @@ def update_proto_session_pdf_header(subject_id: str, session_id: str):
     if subtitle_mode == "none":
         pdf_subtitle = "__none__"
     elif subtitle_mode == "custom":
-        pdf_subtitle = request.form.get("pdf_subtitle", "").strip()
+        pdf_subtitle = request.form.get("pdf_subtitle", "").strip() or "__none__"
     else:
         pdf_subtitle = ""
     catalog.save_proto_session_pdf_header(session_id, pdf_title, pdf_subtitle)
@@ -1098,7 +1096,7 @@ def close_proto_session(subject_id: str, session_id: str):
         abort(404)
     catalog.close_proto_session(session_id)
     flash("Session geschlossen.", "success")
-    return redirect(url_for("subject_detail", subject_id=subject_id))
+    return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
 
 
 @app.post("/subjects/<subject_id>/sessions/<session_id>/reopen")
@@ -1107,10 +1105,10 @@ def reopen_proto_session(subject_id: str, session_id: str):
     session = catalog.get_proto_session_by_id(session_id)
     if not session or session["subject_id"] != subject_id:
         abort(404)
-    with catalog._connect() as db:
-        db.execute("update proto_sessions set status = 'open', updated_at = ? where id = ?",
-                   (datetime.now().isoformat(), session_id))
-        db.commit()
+    if session["status"] == "released":
+        flash("Freigegebene Sessions können nicht wieder geöffnet werden.", "error")
+        return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
+    catalog.reopen_proto_session(session_id)
     flash("Session wieder geöffnet.", "success")
     return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
 
@@ -1118,8 +1116,25 @@ def reopen_proto_session(subject_id: str, session_id: str):
 @app.post("/subjects/<subject_id>/sessions/<session_id>/contributions/<contribution_id>/delete")
 @require_role("editor")
 def delete_proto_contribution(subject_id: str, session_id: str, contribution_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    contribution = catalog.get_proto_contribution_by_id(contribution_id)
+    if not contribution or contribution["session_id"] != session_id:
+        abort(404)
     catalog.delete_proto_contribution(contribution_id)
     return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/delete")
+@require_role("editor")
+def delete_proto_session(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    catalog.delete_proto_session(session_id)
+    flash("Protokoll-Session gelöscht.", "success")
+    return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
 @app.get("/subjects/<subject_id>/sessions/<session_id>")

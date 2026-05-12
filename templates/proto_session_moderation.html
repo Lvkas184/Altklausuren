@@ -137,6 +137,18 @@
               </form>
             </section>
           {% endif %}
+
+          <section class="panel">
+            <h2>Session löschen</h2>
+            <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">
+              Löscht diese Session und alle Beiträge unwiderruflich.
+              {% if session.status == 'released' %}Das freigegebene PDF bleibt in der Sammlung erhalten.{% endif %}
+            </p>
+            <form action="{{ url_for('delete_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post"
+                  onsubmit="return confirm('Session wirklich löschen? Das kann nicht rückgängig gemacht werden.')">
+              <button class="danger" type="submit" style="width:100%;">Session löschen</button>
+            </form>
+          </section>
         </aside>
       </section>
     </main>

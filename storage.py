@@ -582,9 +582,37 @@ class Catalog:
             row = db.execute("select * from proto_contributions where id = ?", (contrib_id,)).fetchone()
         return dict(row)
 
+    def get_proto_contribution_by_id(self, contribution_id: str) -> dict | None:
+        with self._connect() as db:
+            row = db.execute(
+                "select * from proto_contributions where id = ?", (contribution_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
     def delete_proto_contribution(self, contribution_id: str) -> None:
         with self._connect() as db:
             db.execute("delete from proto_contributions where id = ?", (contribution_id,))
+            db.commit()
+
+    def reopen_proto_session(self, session_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update proto_sessions set status = 'open', updated_at = ? where id = ?",
+                (_now(), session_id),
+            )
+            db.commit()
+
+    def update_proto_session_semester(self, session_id: str, semester: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update proto_sessions set semester = ?, updated_at = ? where id = ?",
+                (semester, _now(), session_id),
+            )
+            db.commit()
+
+    def delete_proto_session(self, session_id: str) -> None:
+        with self._connect() as db:
+            db.execute("delete from proto_sessions where id = ?", (session_id,))
             db.commit()
 
     def _migrate_add_no_cover(self) -> None:
