@@ -21,7 +21,9 @@
             <div class="user-pill">
               <strong>{{ current_user.name }}</strong>
               <span>{{ active_role }}</span>
-              <a href="{{ url_for('logout') }}">Abmelden</a>
+              <form action="{{ url_for('logout') }}" method="post" style="display:inline;">
+                <button type="submit" class="nav-link" style="background:none;border:none;padding:0;cursor:pointer;font:inherit;">Abmelden</button>
+              </form>
             </div>
           {% endif %}
         </div>

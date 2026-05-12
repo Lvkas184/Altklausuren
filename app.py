@@ -54,7 +54,16 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-altklausuren-local")
+_secret_key = os.getenv("SECRET_KEY", "")
+if not _secret_key:
+    import warnings
+    warnings.warn(
+        "SECRET_KEY ist nicht gesetzt – die App läuft mit einem unsicheren Standardwert. "
+        "Setze SECRET_KEY in .env oder als Umgebungsvariable.",
+        stacklevel=1,
+    )
+    _secret_key = "dev-altklausuren-local"
+app.config["SECRET_KEY"] = _secret_key
 app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -228,7 +237,7 @@ def continue_forward_auth_login():
     return redirect(url_for("index"))
 
 
-@app.get("/logout")
+@app.post("/logout")
 def logout():
     clear_user()
     flash("Du wurdest abgemeldet.", "success")
@@ -807,14 +816,14 @@ def split_collection_execute(subject_id: str, submission_id: str):
     indices = sorted({
         int(k.split("_")[2])
         for k in request.form
-        if k.startswith("group_start_")
+        if k.startswith("group_start_") and k.split("_")[2].isdigit()
     })
 
     groups = []
     for i in indices:
         start = request.form.get(f"group_start_{i}", "").strip()
         end = request.form.get(f"group_end_{i}", "").strip()
-        if not start or not end:
+        if not start or not end or not start.isdigit() or not end.isdigit():
             continue
         groups.append({
             "start_page": int(start),
@@ -983,7 +992,7 @@ def _get_or_set_contributor_token(response=None):
         import secrets
         token = secrets.token_urlsafe(16)
         if response:
-            response.set_cookie(_CONTRIBUTOR_COOKIE, token, max_age=60 * 60 * 24 * 365, samesite="Lax")
+            response.set_cookie(_CONTRIBUTOR_COOKIE, token, max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True)
     return token
 
 
@@ -997,16 +1006,16 @@ def create_proto_session(subject_id: str):
     if not semester:
         flash("Semester ist erforderlich.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
-    session = catalog.create_proto_session(subject_id, semester)
-    flash(f"Session angelegt. Teilnahme-Link: {request.host_url}session/{session['token']}", "success")
+    proto_sess = catalog.create_proto_session(subject_id, semester)
+    flash(f"Session angelegt. Teilnahme-Link: {request.host_url}session/{proto_sess['token']}", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
 @app.get("/session/<token>/qr.png")
 def proto_session_qr(token: str):
     import qrcode, io
-    session = catalog.get_proto_session_by_token(token)
-    if not session:
+    proto_sess = catalog.get_proto_session_by_token(token)
+    if not proto_sess:
         abort(404)
     url = request.url_root.rstrip("/") + f"/session/{token}"
     img = qrcode.make(url)
@@ -1019,21 +1028,21 @@ def proto_session_qr(token: str):
 
 @app.get("/session/<token>")
 def proto_session_view(token: str):
-    session = catalog.get_proto_session_by_token(token)
-    if not session:
+    proto_sess = catalog.get_proto_session_by_token(token)
+    if not proto_sess:
         abort(404)
-    subject = catalog.get_subject(session["subject_id"])
+    subject = catalog.get_subject(proto_sess["subject_id"])
     contributor_token = request.cookies.get(_CONTRIBUTOR_COOKIE, "")
     own_contribution = None
     if contributor_token:
-        contribs = catalog.get_proto_contributions(session["id"])
+        contribs = catalog.get_proto_contributions(proto_sess["id"])
         own_contribution = next((c for c in contribs if c["contributor_token"] == contributor_token), None)
         others = [c for c in contribs if c["contributor_token"] != contributor_token]
     else:
-        others = catalog.get_proto_contributions(session["id"])
+        others = catalog.get_proto_contributions(proto_sess["id"])
     resp = make_response(render_template(
         "proto_session.html",
-        session=session,
+        session=proto_sess,
         subject=subject,
         own_contribution=own_contribution,
         others=others,
@@ -1047,23 +1056,28 @@ def proto_session_view(token: str):
 
 @app.post("/session/<token>/contribute")
 def proto_session_contribute(token: str):
-    session = catalog.get_proto_session_by_token(token)
-    if not session or session["status"] != "open":
+    proto_sess = catalog.get_proto_session_by_token(token)
+    if not proto_sess or proto_sess["status"] != "open":
         return {"ok": False, "error": "session closed"}, 400
     contributor_token = request.cookies.get(_CONTRIBUTOR_COOKIE, "")
-    if not contributor_token:
-        return {"ok": False, "error": "no contributor token"}, 400
+    new_token = not contributor_token
+    if new_token:
+        import secrets as _sec
+        contributor_token = _sec.token_urlsafe(16)
     text = (request.json or {}).get("text", "") if request.is_json else request.form.get("text", "")
     text = text[:50_000]
-    catalog.upsert_proto_contribution(session["id"], contributor_token, text)
-    return {"ok": True}
+    catalog.upsert_proto_contribution(proto_sess["id"], contributor_token, text)
+    resp = make_response({"ok": True})
+    if new_token:
+        resp.set_cookie(_CONTRIBUTOR_COOKIE, contributor_token, max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True)
+    return resp
 
 
 @app.post("/subjects/<subject_id>/sessions/<session_id>/semester")
 @require_role("editor")
 def update_proto_session_semester(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     semester = request.form.get("semester", "").strip()
     catalog.update_proto_session_semester(session_id, semester)
@@ -1073,8 +1087,8 @@ def update_proto_session_semester(subject_id: str, session_id: str):
 @app.post("/subjects/<subject_id>/sessions/<session_id>/update-pdf-header")
 @require_role("editor")
 def update_proto_session_pdf_header(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     pdf_title = request.form.get("pdf_title", "").strip()
     subtitle_mode = request.form.get("subtitle_mode", "default")
@@ -1091,8 +1105,8 @@ def update_proto_session_pdf_header(subject_id: str, session_id: str):
 @app.post("/subjects/<subject_id>/sessions/<session_id>/close")
 @require_role("editor")
 def close_proto_session(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     catalog.close_proto_session(session_id)
     flash("Session geschlossen.", "success")
@@ -1102,10 +1116,10 @@ def close_proto_session(subject_id: str, session_id: str):
 @app.post("/subjects/<subject_id>/sessions/<session_id>/reopen")
 @require_role("editor")
 def reopen_proto_session(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
-    if session["status"] == "released":
+    if proto_sess["status"] == "released":
         flash("Freigegebene Sessions können nicht wieder geöffnet werden.", "error")
         return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
     catalog.reopen_proto_session(session_id)
@@ -1116,8 +1130,8 @@ def reopen_proto_session(subject_id: str, session_id: str):
 @app.post("/subjects/<subject_id>/sessions/<session_id>/contributions/<contribution_id>/delete")
 @require_role("editor")
 def delete_proto_contribution(subject_id: str, session_id: str, contribution_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     contribution = catalog.get_proto_contribution_by_id(contribution_id)
     if not contribution or contribution["session_id"] != session_id:
@@ -1129,8 +1143,8 @@ def delete_proto_contribution(subject_id: str, session_id: str, contribution_id:
 @app.post("/subjects/<subject_id>/sessions/<session_id>/delete")
 @require_role("editor")
 def delete_proto_session(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     catalog.delete_proto_session(session_id)
     flash("Protokoll-Session gelöscht.", "success")
@@ -1140,17 +1154,17 @@ def delete_proto_session(subject_id: str, session_id: str):
 @app.get("/subjects/<subject_id>/sessions/<session_id>")
 @require_role("editor")
 def proto_session_moderation(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     subject = catalog.get_subject(subject_id)
     contributions = catalog.get_proto_contributions(session_id)
     return render_template(
         "proto_session_moderation.html",
-        session=session,
+        session=proto_sess,
         subject=subject,
         contributions=contributions,
-        session_url=f"{request.host_url}session/{session['token']}",
+        session_url=f"{request.host_url}session/{proto_sess['token']}",
         auth_enabled=AuthConfig.from_env().enabled,
         current_user=current_user(),
     )
@@ -1159,14 +1173,14 @@ def proto_session_moderation(subject_id: str, session_id: str):
 @app.get("/subjects/<subject_id>/sessions/<session_id>/editor")
 @require_role("editor")
 def proto_session_editor(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     subject = catalog.get_subject(subject_id)
     contributions = catalog.get_proto_contributions(session_id)
     return render_template(
         "proto_session_editor.html",
-        session=session,
+        session=proto_sess,
         subject=subject,
         contributions=contributions,
         auth_enabled=AuthConfig.from_env().enabled,
@@ -1177,8 +1191,8 @@ def proto_session_editor(subject_id: str, session_id: str):
 @app.post("/subjects/<subject_id>/sessions/<session_id>/editor/save")
 @require_role("editor")
 def save_proto_session_editor(subject_id: str, session_id: str):
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     content = (request.json or {}).get("content", "") if request.is_json else request.form.get("content", "")
     catalog.save_proto_session_editor(session_id, content)
@@ -1190,12 +1204,12 @@ def save_proto_session_editor(subject_id: str, session_id: str):
 def preview_proto_session_pdf(subject_id: str, session_id: str):
     from io import BytesIO
     from pdf_workflow import generate_proto_pdf
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
     subject = catalog.get_subject(subject_id)
     buf = BytesIO()
-    generate_proto_pdf(content=session["editor_content"], subject=subject, session=session, out_path=buf)
+    generate_proto_pdf(content=proto_sess["editor_content"], subject=subject, session=proto_sess, out_path=buf)
     buf.seek(0)
     return make_response(buf.read(), 200, {"Content-Type": "application/pdf", "Content-Disposition": "inline"})
 
@@ -1204,12 +1218,13 @@ def preview_proto_session_pdf(subject_id: str, session_id: str):
 @require_role("editor")
 def release_proto_session(subject_id: str, session_id: str):
     from pdf_workflow import generate_proto_pdf
-    session = catalog.get_proto_session_by_id(session_id)
-    if not session or session["subject_id"] != subject_id:
+    proto_sess = catalog.get_proto_session_by_id(session_id)
+    if not proto_sess or proto_sess["subject_id"] != subject_id:
         abort(404)
-    if session["status"] == "released":
-        flash("Session wurde bereits freigegeben.", "error")
-        return redirect(url_for("subject_detail", subject_id=subject_id))
+    if proto_sess["status"] != "closed":
+        msg = "Session wurde bereits freigegeben." if proto_sess["status"] == "released" else "Nur geschlossene Sessions können freigegeben werden."
+        flash(msg, "error")
+        return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
     subject = catalog.get_subject(subject_id)
     subject_dir = catalog.subject_dir(subject_id)
     incoming_dir = subject_dir / "incoming"
@@ -1217,10 +1232,10 @@ def release_proto_session(subject_id: str, session_id: str):
     from datetime import datetime as _dt
     filename = f"{_dt.now().strftime('%Y%m%d-%H%M%S')}-protokoll.pdf"
     out_path = incoming_dir / filename
-    generate_proto_pdf(content=session["editor_content"], subject=subject, session=session, out_path=out_path)
+    generate_proto_pdf(content=proto_sess["editor_content"], subject=subject, session=proto_sess, out_path=out_path)
     metadata = {
         "kind": "Gedaechtnisprotokoll",
-        "term": session["semester"],
+        "term": proto_sess["semester"],
         "exam_date": "",
         "instructor": "",
         "solution": "unbekannt",
