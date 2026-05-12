@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Session – {{ subject.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar app-header">
+        <div class="brand-lockup">
+          <div class="brand-mark">Forum<br>WI</div>
+          <div>
+            <p class="eyebrow">Protokoll-Session</p>
+            <h1>{{ subject.title }} – {{ session.semester }}</h1>
+            <p class="subtitle">{{ contributions|length }} Beiträge &middot; Status: {{ session.status }}</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="nav-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">← Zurück</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <p class="message {{ category }}">{{ message }}</p>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <section style="margin: 1.5rem 2rem; display: grid; grid-template-columns: 1fr 280px; gap: 1.5rem; align-items: start;">
+        <div>
+          {% if contributions %}
+            {% for c in contributions %}
+              <article style="background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:1rem; margin-bottom:0.75rem;">
+                <pre style="white-space:pre-wrap; font-family:inherit; font-size:0.9rem; margin:0 0 0.5rem;">{{ c.text }}</pre>
+                <form action="{{ url_for('delete_proto_contribution', subject_id=subject.id, session_id=session.id, contribution_id=c.id) }}" method="post" style="text-align:right;">
+                  <button class="danger small-action" type="submit">Löschen</button>
+                </form>
+              </article>
+            {% endfor %}
+          {% else %}
+            <p class="blank">Noch keine Beiträge.</p>
+          {% endif %}
+        </div>
+
+        <aside class="side-stack">
+          <section class="panel">
+            <h2>Teilnahme-Link</h2>
+            <p style="font-size:0.8rem; word-break:break-all; margin-bottom:0.5rem;">{{ session_url }}</p>
+            <button class="secondary small-action" onclick="navigator.clipboard.writeText('{{ session_url }}')">Kopieren</button>
+          </section>
+
+          {% if session.status == 'open' %}
+            <section class="panel">
+              <h2>Session schließen</h2>
+              <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">Schließt die Eingabe für Studierende.</p>
+              <form action="{{ url_for('close_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post">
+                <button class="secondary" type="submit">Session schließen</button>
+              </form>
+            </section>
+          {% endif %}
+
+          {% if session.status == 'closed' %}
+            <section class="panel">
+              <h2>Inhalt bearbeiten</h2>
+              <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">Beiträge zusammenführen und formatieren.</p>
+              <a class="secondary" href="{{ url_for('proto_session_editor', subject_id=subject.id, session_id=session.id) }}" style="display:block; text-align:center; padding:0.4rem 0.8rem; border-radius:4px; text-decoration:none;">Zum Editor</a>
+            </section>
+          {% endif %}
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

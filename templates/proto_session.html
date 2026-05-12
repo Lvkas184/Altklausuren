@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>{{ subject.title }} – {{ session.semester }}</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f5f5; color: #1a1a1a; }
+      .header { background: #1a1a1a; color: #fff; padding: 1rem 1.2rem; }
+      .header h1 { font-size: 1.1rem; font-weight: 700; }
+      .header p { font-size: 0.85rem; color: #aaa; margin-top: 0.15rem; }
+      .closed-banner { background: #fff3cd; border-bottom: 1px solid #ffc107; padding: 1rem 1.2rem; font-size: 0.9rem; }
+      .section { padding: 1rem 1.2rem; }
+      .section h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 0.6rem; }
+      textarea {
+        width: 100%; min-height: 160px; font-size: 1rem; line-height: 1.5;
+        padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px;
+        resize: vertical; background: #fff;
+        font-family: inherit;
+      }
+      textarea:focus { outline: none; border-color: #c8a000; }
+      .status { font-size: 0.8rem; color: #888; margin-top: 0.4rem; min-height: 1.2em; }
+      .divider { border: none; border-top: 1px solid #e0e0e0; margin: 0.5rem 0; }
+      .contribution { background: #fff; border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+      .contribution.own { border-left: 3px solid #c8a000; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>{{ subject.title }}</h1>
+      <p>Gedächtnisprotokoll · {{ session.semester }}</p>
+    </div>
+
+    {% if session.status != 'open' %}
+      <div class="closed-banner">Diese Session wurde geschlossen. Du kannst deinen Beitrag nicht mehr bearbeiten.</div>
+    {% endif %}
+
+    {% if session.status == 'open' %}
+      <div class="section">
+        <h2>Dein Beitrag</h2>
+        <textarea id="own-text" placeholder="Schreibe hier dein Gedächtnisprotokoll…">{{ own_contribution.text if own_contribution else '' }}</textarea>
+        <p class="status" id="save-status"></p>
+      </div>
+      <hr class="divider">
+    {% elif own_contribution %}
+      <div class="section">
+        <h2>Dein Beitrag</h2>
+        <div class="contribution own">{{ own_contribution.text }}</div>
+      </div>
+      <hr class="divider">
+    {% endif %}
+
+    {% if others %}
+      <div class="section">
+        <h2>Beiträge anderer ({{ others|length }})</h2>
+        {% for c in others %}
+          <div class="contribution">{{ c.text }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if session.status == 'open' %}
+    <script>
+      const textarea = document.getElementById('own-text');
+      const status = document.getElementById('save-status');
+      let timer = null;
+
+      textarea.addEventListener('input', () => {
+        clearTimeout(timer);
+        status.textContent = 'Wird gespeichert…';
+        timer = setTimeout(save, 1500);
+      });
+
+      async function save() {
+        try {
+          const resp = await fetch('/session/{{ session.token }}/contribute', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: textarea.value}),
+          });
+          status.textContent = resp.ok ? 'Gespeichert.' : 'Fehler beim Speichern.';
+        } catch {
+          status.textContent = 'Fehler beim Speichern.';
+        }
+      }
+    </script>
+    {% endif %}
+  </body>
+</html>

@@ -222,9 +222,14 @@ class Catalog:
                 (subject["id"],),
             ).fetchall()
             sync = db.execute("select * from drive_sync where subject_id = ?", (subject["id"],)).fetchone()
+            proto_sessions = db.execute(
+                "select * from proto_sessions where subject_id = ? order by created_at desc",
+                (subject["id"],),
+            ).fetchall()
         subject["submissions"] = [_submission_from_row(submission) for submission in submissions]
         subject["drive_sync"] = _drive_sync_from_row(sync) if sync else {}
         subject["drive"] = subject["drive_sync"]
+        subject["proto_sessions"] = [dict(r) for r in proto_sessions]
         return subject
 
     @contextmanager
@@ -299,7 +304,25 @@ class Catalog:
                     original_filename text not null default '',
                     created_at text not null
                 );
-                create table if not exists audit_log (
+                create table if not exists proto_sessions (
+                    id text primary key,
+                    subject_id text not null references subjects(id) on delete cascade,
+                    semester text not null default '',
+                    status text not null default 'open',
+                    token text not null unique,
+                    editor_content text not null default '',
+                    created_at text not null,
+                    updated_at text not null
+                );
+                create table if not exists proto_contributions (
+                    id text primary key,
+                    session_id text not null references proto_sessions(id) on delete cascade,
+                    contributor_token text not null,
+                    text text not null default '',
+                    created_at text not null,
+                    updated_at text not null
+                );
+                                create table if not exists audit_log (
                     id integer primary key autoincrement,
                     event text not null,
                     subject_id text,
@@ -458,6 +481,101 @@ class Catalog:
             "strip_uploaded_cover": False,
             "collection_import": True,
         })
+
+    # ── Protokoll-Sessions ──────────────────────────────────────────────
+
+    def create_proto_session(self, subject_id: str, semester: str) -> dict:
+        import secrets
+        session_id = "ps-" + secrets.token_hex(8)
+        token = secrets.token_urlsafe(16)
+        now = _now()
+        with self._connect() as db:
+            db.execute(
+                "insert into proto_sessions (id, subject_id, semester, status, token, editor_content, created_at, updated_at) values (?,?,?,?,?,?,?,?)",
+                (session_id, subject_id, semester, "open", token, "", now, now),
+            )
+            db.commit()
+        return self.get_proto_session_by_id(session_id)
+
+    def get_proto_session_by_id(self, session_id: str) -> dict | None:
+        with self._connect() as db:
+            row = db.execute("select * from proto_sessions where id = ?", (session_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_proto_session_by_token(self, token: str) -> dict | None:
+        with self._connect() as db:
+            row = db.execute("select * from proto_sessions where token = ?", (token,)).fetchone()
+        return dict(row) if row else None
+
+    def get_proto_sessions_for_subject(self, subject_id: str) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                "select * from proto_sessions where subject_id = ? order by created_at desc",
+                (subject_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def close_proto_session(self, session_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update proto_sessions set status = 'closed', updated_at = ? where id = ?",
+                (_now(), session_id),
+            )
+            db.commit()
+
+    def release_proto_session(self, session_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update proto_sessions set status = 'released', updated_at = ? where id = ?",
+                (_now(), session_id),
+            )
+            db.commit()
+
+    def save_proto_session_editor(self, session_id: str, content: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update proto_sessions set editor_content = ?, updated_at = ? where id = ?",
+                (content, _now(), session_id),
+            )
+            db.commit()
+
+    def get_proto_contributions(self, session_id: str) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                "select * from proto_contributions where session_id = ? order by created_at asc",
+                (session_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_proto_contribution(self, session_id: str, contributor_token: str, text: str) -> dict:
+        import secrets
+        with self._connect() as db:
+            row = db.execute(
+                "select id from proto_contributions where session_id = ? and contributor_token = ?",
+                (session_id, contributor_token),
+            ).fetchone()
+            now = _now()
+            if row:
+                db.execute(
+                    "update proto_contributions set text = ?, updated_at = ? where id = ?",
+                    (text, now, row["id"]),
+                )
+                contrib_id = row["id"]
+            else:
+                contrib_id = "pc-" + secrets.token_hex(8)
+                db.execute(
+                    "insert into proto_contributions (id, session_id, contributor_token, text, created_at, updated_at) values (?,?,?,?,?,?)",
+                    (contrib_id, session_id, contributor_token, text, now, now),
+                )
+            db.commit()
+        with self._connect() as db:
+            row = db.execute("select * from proto_contributions where id = ?", (contrib_id,)).fetchone()
+        return dict(row)
+
+    def delete_proto_contribution(self, contribution_id: str) -> None:
+        with self._connect() as db:
+            db.execute("delete from proto_contributions where id = ?", (contribution_id,))
+            db.commit()
 
     def _migrate_add_no_cover(self) -> None:
         with self._connect() as db:

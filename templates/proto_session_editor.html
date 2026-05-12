@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Editor – {{ subject.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+      .editor-layout { display: grid; grid-template-columns: 1fr 340px; gap: 1.5rem; margin: 1.5rem 2rem; align-items: start; }
+      .editor-area { position: sticky; top: 1rem; }
+      textarea#editor {
+        width: 100%; height: 70vh; font-size: 0.95rem; line-height: 1.6;
+        padding: 1rem; border: 1px solid #ddd; border-radius: 6px;
+        font-family: 'Courier New', monospace; resize: vertical;
+      }
+      textarea#editor:focus { outline: none; border-color: var(--accent, #c8a000); }
+      .contrib-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.6rem; }
+      .contrib-card pre { white-space: pre-wrap; font-family: inherit; font-size: 0.85rem; margin: 0 0 0.4rem; }
+      .save-status { font-size: 0.8rem; color: #888; margin-top: 0.4rem; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar app-header">
+        <div class="brand-lockup">
+          <div class="brand-mark">Forum<br>WI</div>
+          <div>
+            <p class="eyebrow">Protokoll-Editor</p>
+            <h1>{{ subject.title }} – {{ session.semester }}</h1>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="nav-link" href="{{ url_for('proto_session_moderation', subject_id=subject.id, session_id=session.id) }}">← Moderation</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <p class="message {{ category }}">{{ message }}</p>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <div class="editor-layout">
+        <div class="editor-area">
+          <p class="eyebrow" style="margin-bottom:0.4rem;">Bearbeiteter Text</p>
+          <textarea id="editor">{{ session.editor_content }}</textarea>
+          <p class="save-status" id="save-status"></p>
+          <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
+            <form action="{{ url_for('release_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post"
+              onsubmit="return confirm('Protokoll als PDF freigeben und zur Sammlung hinzufügen?')">
+              <button class="primary" type="submit">Freigeben → zur Sammlung</button>
+            </form>
+          </div>
+        </div>
+
+        <aside>
+          <p class="eyebrow" style="margin-bottom:0.5rem;">Rohmaterial ({{ contributions|length }} Beiträge)</p>
+          {% if contributions %}
+            {% for c in contributions %}
+              <div class="contrib-card">
+                <pre>{{ c.text }}</pre>
+                <button class="secondary small-action" onclick="appendToEditor({{ c.text | tojson }})">Übernehmen</button>
+              </div>
+            {% endfor %}
+          {% else %}
+            <p class="blank">Keine Beiträge.</p>
+          {% endif %}
+        </aside>
+      </div>
+    </main>
+
+    <script>
+      const editor = document.getElementById('editor');
+      const status = document.getElementById('save-status');
+      let timer = null;
+
+      editor.addEventListener('input', () => {
+        clearTimeout(timer);
+        status.textContent = 'Wird gespeichert…';
+        timer = setTimeout(save, 1500);
+      });
+
+      async function save() {
+        try {
+          const resp = await fetch('{{ url_for("save_proto_session_editor", subject_id=subject.id, session_id=session.id) }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({content: editor.value}),
+          });
+          status.textContent = resp.ok ? 'Gespeichert.' : 'Fehler.';
+        } catch {
+          status.textContent = 'Fehler.';
+        }
+      }
+
+      function appendToEditor(text) {
+        const sep = editor.value && !editor.value.endsWith('\n\n') ? '\n\n' : '';
+        editor.value += sep + text;
+        editor.dispatchEvent(new Event('input'));
+        editor.scrollTop = editor.scrollHeight;
+      }
+    </script>
+  </body>
+</html>

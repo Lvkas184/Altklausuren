@@ -271,7 +271,31 @@
             </section>
           {% endif %}
 
-          {% if can_admin %}
+          {% if can_edit %}
+            <section class="panel">
+              <h2>Protokoll-Session</h2>
+              {% set sessions = subject.get('proto_sessions', []) %}
+              {% if sessions %}
+                <div class="stack compact" style="margin-bottom:0.75rem;">
+                  {% for ps in sessions %}
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
+                      <a href="{{ url_for('proto_session_moderation', subject_id=subject.id, session_id=ps.id) }}">{{ ps.semester }}</a>
+                      <span class="badge {{ ps.status }}">{{ ps.status }}</span>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <form action="{{ url_for('create_proto_session', subject_id=subject.id) }}" method="post" class="stack compact">
+                <label>
+                  Semester
+                  <input name="semester" placeholder="z. B. WiSe 2026/27" required>
+                </label>
+                <button class="secondary" type="submit">Session anlegen</button>
+              </form>
+            </section>
+          {% endif %}
+
+                    {% if can_admin %}
             <section class="panel">
               <h2>DRUCK-Sammlung importieren</h2>
               <form action="{{ url_for('import_subject_collection', subject_id=subject.id) }}" method="post" enctype="multipart/form-data" class="stack compact">

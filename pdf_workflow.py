@@ -241,7 +241,12 @@ def _build_cover(subject: dict, entries: list[dict]) -> BytesIO:
     pdf.line(left, rule_y, width - 20 * mm, rule_y)
 
     title_y = rule_y - 24 * mm
-    pdf.setFont("Helvetica", 36)
+    max_title_width = width - left - 20 * mm
+    title_font_size = 36
+    pdf.setFont("Helvetica", title_font_size)
+    while pdf.stringWidth(subject["title"], "Helvetica", title_font_size) > max_title_width and title_font_size > 16:
+        title_font_size -= 1
+        pdf.setFont("Helvetica", title_font_size)
     pdf.drawString(left, title_y, subject["title"])
     pdf.setFont("Helvetica", 20)
     pdf.drawString(left, title_y - 13 * mm, "Klausurensammlung")
@@ -492,3 +497,41 @@ def _semester_sort_key(term: str) -> tuple:
             year += 2000
         return (year, 0)
     return (-1, -1)
+
+
+def generate_proto_pdf(*, content: str, subject: dict, session: dict, out_path: Path) -> None:
+    """Generate a PDF from proto session editor content (plain text, paragraphs preserved)."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_LEFT
+
+    doc = SimpleDocTemplate(
+        str(out_path),
+        pagesize=A4,
+        leftMargin=25 * mm,
+        rightMargin=25 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("title", parent=styles["Heading1"], fontSize=16, spaceAfter=4)
+    meta_style = ParagraphStyle("meta", parent=styles["Normal"], fontSize=9, textColor=(0.4, 0.4, 0.4), spaceAfter=12)
+    body_style = ParagraphStyle("body", parent=styles["Normal"], fontSize=10, leading=14, spaceAfter=8, alignment=TA_LEFT)
+
+    story = [
+        Paragraph(subject["title"], title_style),
+        Paragraph(f"Gedächtnisprotokoll · {session['semester']}", meta_style),
+    ]
+
+    for para in content.split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        # Escape HTML-special chars
+        para = para.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        para = para.replace("\n", "<br/>")
+        story.append(Paragraph(para, body_style))
+
+    doc.build(story)

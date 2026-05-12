@@ -14,7 +14,7 @@ VENDOR = Path(__file__).resolve().parent / ".vendor"
 if VENDOR.exists():
     sys.path.insert(0, str(VENDOR))
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, abort, flash, make_response, redirect, render_template, request, send_file, session, url_for
 from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
@@ -969,6 +969,184 @@ def _send_current_pdf(subject_id: str, *, as_attachment: bool):
 
     download_name = f"{subject['slug']}-altklausuren.pdf"
     return send_file(current_path, mimetype="application/pdf", as_attachment=as_attachment, download_name=download_name)
+
+
+
+# ── Protokoll-Sessions ────────────────────────────────────────────────────────
+
+_CONTRIBUTOR_COOKIE = "proto_contributor"
+
+
+def _get_or_set_contributor_token(response=None):
+    token = request.cookies.get(_CONTRIBUTOR_COOKIE)
+    if not token:
+        import secrets
+        token = secrets.token_urlsafe(16)
+        if response:
+            response.set_cookie(_CONTRIBUTOR_COOKIE, token, max_age=60 * 60 * 24 * 365, samesite="Lax")
+    return token
+
+
+@app.post("/subjects/<subject_id>/sessions")
+@require_role("editor")
+def create_proto_session(subject_id: str):
+    subject = catalog.get_subject(subject_id)
+    if not subject:
+        abort(404)
+    semester = request.form.get("semester", "").strip()
+    if not semester:
+        flash("Semester ist erforderlich.", "error")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
+    session = catalog.create_proto_session(subject_id, semester)
+    flash(f"Session angelegt. Teilnahme-Link: {request.host_url}session/{session['token']}", "success")
+    return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+@app.get("/session/<token>")
+def proto_session_view(token: str):
+    session = catalog.get_proto_session_by_token(token)
+    if not session:
+        abort(404)
+    subject = catalog.get_subject(session["subject_id"])
+    contributor_token = request.cookies.get(_CONTRIBUTOR_COOKIE, "")
+    own_contribution = None
+    if contributor_token:
+        contribs = catalog.get_proto_contributions(session["id"])
+        own_contribution = next((c for c in contribs if c["contributor_token"] == contributor_token), None)
+        others = [c for c in contribs if c["contributor_token"] != contributor_token]
+    else:
+        others = catalog.get_proto_contributions(session["id"])
+    resp = make_response(render_template(
+        "proto_session.html",
+        session=session,
+        subject=subject,
+        own_contribution=own_contribution,
+        others=others,
+    ))
+    if not contributor_token:
+        import secrets
+        contributor_token = secrets.token_urlsafe(16)
+        resp.set_cookie(_CONTRIBUTOR_COOKIE, contributor_token, max_age=60 * 60 * 24 * 365, samesite="Lax")
+    return resp
+
+
+@app.post("/session/<token>/contribute")
+def proto_session_contribute(token: str):
+    session = catalog.get_proto_session_by_token(token)
+    if not session or session["status"] != "open":
+        return {"ok": False, "error": "session closed"}, 400
+    contributor_token = request.cookies.get(_CONTRIBUTOR_COOKIE, "")
+    if not contributor_token:
+        return {"ok": False, "error": "no contributor token"}, 400
+    text = (request.json or {}).get("text", "") if request.is_json else request.form.get("text", "")
+    catalog.upsert_proto_contribution(session["id"], contributor_token, text)
+    return {"ok": True}
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/close")
+@require_role("editor")
+def close_proto_session(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    catalog.close_proto_session(session_id)
+    flash("Session geschlossen.", "success")
+    return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/contributions/<contribution_id>/delete")
+@require_role("editor")
+def delete_proto_contribution(subject_id: str, session_id: str, contribution_id: str):
+    catalog.delete_proto_contribution(contribution_id)
+    return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
+
+
+@app.get("/subjects/<subject_id>/sessions/<session_id>")
+@require_role("editor")
+def proto_session_moderation(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    subject = catalog.get_subject(subject_id)
+    contributions = catalog.get_proto_contributions(session_id)
+    return render_template(
+        "proto_session_moderation.html",
+        session=session,
+        subject=subject,
+        contributions=contributions,
+        session_url=f"{request.host_url}session/{session['token']}",
+        auth_enabled=AuthConfig.from_env().enabled,
+        current_user=current_user(),
+    )
+
+
+@app.get("/subjects/<subject_id>/sessions/<session_id>/editor")
+@require_role("editor")
+def proto_session_editor(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    subject = catalog.get_subject(subject_id)
+    contributions = catalog.get_proto_contributions(session_id)
+    return render_template(
+        "proto_session_editor.html",
+        session=session,
+        subject=subject,
+        contributions=contributions,
+        auth_enabled=AuthConfig.from_env().enabled,
+        current_user=current_user(),
+    )
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/editor/save")
+@require_role("editor")
+def save_proto_session_editor(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    content = (request.json or {}).get("content", "") if request.is_json else request.form.get("content", "")
+    catalog.save_proto_session_editor(session_id, content)
+    return {"ok": True}
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/release")
+@require_role("editor")
+def release_proto_session(subject_id: str, session_id: str):
+    from pdf_workflow import generate_proto_pdf
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    if session["status"] == "released":
+        flash("Session wurde bereits freigegeben.", "error")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
+    subject = catalog.get_subject(subject_id)
+    subject_dir = catalog.subject_dir(subject_id)
+    incoming_dir = subject_dir / "incoming"
+    incoming_dir.mkdir(parents=True, exist_ok=True)
+    from datetime import datetime as _dt
+    filename = f"{_dt.now().strftime('%Y%m%d-%H%M%S')}-protokoll.pdf"
+    out_path = incoming_dir / filename
+    generate_proto_pdf(content=session["editor_content"], subject=subject, session=session, out_path=out_path)
+    metadata = {
+        "kind": "Gedaechtnisprotokoll",
+        "term": session["semester"],
+        "exam_date": "",
+        "instructor": "",
+        "solution": "unbekannt",
+        "notes": "",
+        "original_filename": filename,
+        "stored_upload": str(out_path.relative_to(subject_dir)),
+        "added_pages": 0,
+        "existing_body_pages": 0,
+        "current_pages": 0,
+        "export_path": "",
+        "strip_uploaded_cover": False,
+        "collection_import": False,
+    }
+    catalog.add_submission(subject_id, metadata)
+    catalog.release_proto_session(session_id)
+    return _regenerate_and_push(subject_id, f"Protokoll freigegeben und zur Sammlung hinzugefügt.")
+
 
 
 if __name__ == "__main__":
