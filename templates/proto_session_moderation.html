@@ -51,16 +51,66 @@
         <aside class="side-stack">
           <section class="panel">
             <h2>Teilnahme-Link</h2>
-            <p style="font-size:0.8rem; word-break:break-all; margin-bottom:0.5rem;">{{ session_url }}</p>
-            <button class="secondary small-action" onclick="navigator.clipboard.writeText('{{ session_url }}')">Kopieren</button>
+            <p id="session-url-display" style="font-size:0.8rem; word-break:break-all; margin-bottom:0.5rem;"></p>
+            <button id="copy-session-btn" class="secondary small-action" onclick="copySessionUrl()">Kopieren</button>
           </section>
+          <script>
+            var SESSION_PATH = '/session/{{ session.token }}';
+            var sessionUrl = window.location.origin + SESSION_PATH;
+            document.getElementById('session-url-display').textContent = sessionUrl;
+            function copySessionUrl() {
+              var btn = document.getElementById('copy-session-btn');
+              if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(sessionUrl).then(function() {
+                  btn.textContent = 'Kopiert!';
+                  setTimeout(function() { btn.textContent = 'Kopieren'; }, 1500);
+                });
+              } else {
+                var el = document.createElement('textarea');
+                el.value = sessionUrl;
+                el.style.position = 'fixed'; el.style.opacity = '0';
+                document.body.appendChild(el);
+                el.focus(); el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                btn.textContent = 'Kopiert!';
+                setTimeout(function() { btn.textContent = 'Kopieren'; }, 1500);
+              }
+            }
+          </script>
 
           <section class="panel">
             <h2>Semester</h2>
-            <form action="{{ url_for('update_proto_session_semester', subject_id=subject.id, session_id=session.id) }}" method="post" style="display:flex; gap:0.4rem;">
-              <input name="semester" value="{{ session.semester }}" style="flex:1; font-size:0.85rem; padding:0.3rem 0.5rem;">
-              <button class="secondary" type="submit">Speichern</button>
+            <form action="{{ url_for('update_proto_session_semester', subject_id=subject.id, session_id=session.id) }}" method="post">
+              <input name="semester" value="{{ session.semester }}" style="width:100%; font-size:0.85rem; padding:0.3rem 0.5rem; margin-bottom:0.5rem; box-sizing:border-box;">
+              <button class="secondary" type="submit" style="width:100%;">Speichern</button>
             </form>
+          </section>
+
+          <section class="panel">
+            <h2>PDF-Kopfzeile</h2>
+            <form action="{{ url_for('update_proto_session_pdf_header', subject_id=subject.id, session_id=session.id) }}" method="post">
+              <label style="font-size:0.8rem; color:#555; display:block; margin-bottom:0.2rem;">Titel</label>
+              <input name="pdf_title" value="{{ session.pdf_title or '' }}" placeholder="{{ subject.title }}" style="width:100%; font-size:0.85rem; padding:0.3rem 0.5rem; margin-bottom:0.75rem; box-sizing:border-box;">
+
+              <label style="font-size:0.8rem; color:#555; display:block; margin-bottom:0.2rem;">Untertitel</label>
+              {% set subtitle_mode = 'none' if session.pdf_subtitle == '__none__' else ('custom' if session.pdf_subtitle else 'default') %}
+              <select name="subtitle_mode" id="subtitle-mode-sel" style="width:100%; font-size:0.85rem; padding:0.3rem 0.5rem; margin-bottom:0.4rem;">
+                <option value="default" {% if subtitle_mode == 'default' %}selected{% endif %}>Standard</option>
+                <option value="custom" {% if subtitle_mode == 'custom' %}selected{% endif %}>Eigener Text</option>
+                <option value="none" {% if subtitle_mode == 'none' %}selected{% endif %}>Kein Untertitel</option>
+              </select>
+              <input name="pdf_subtitle" id="subtitle-text-input"
+                     value="{{ session.pdf_subtitle if subtitle_mode == 'custom' else '' }}"
+                     placeholder="z.B. Gedächtnisprotokoll · WS26/27"
+                     style="width:100%; font-size:0.85rem; padding:0.3rem 0.5rem; margin-bottom:0.75rem; box-sizing:border-box; display:{{ 'block' if subtitle_mode == 'custom' else 'none' }};">
+              <button class="secondary" type="submit" style="width:100%;">Speichern</button>
+            </form>
+            <script>
+              document.getElementById('subtitle-mode-sel').addEventListener('change', function() {
+                document.getElementById('subtitle-text-input').style.display = this.value === 'custom' ? 'block' : 'none';
+              });
+            </script>
           </section>
 
           {% if session.status == 'open' %}
@@ -78,6 +128,13 @@
               <h2>Inhalt bearbeiten</h2>
               <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">Beiträge zusammenführen und formatieren.</p>
               <a class="secondary" href="{{ url_for('proto_session_editor', subject_id=subject.id, session_id=session.id) }}" style="display:block; text-align:center; padding:0.4rem 0.8rem; border-radius:4px; text-decoration:none;">Zum Editor</a>
+            </section>
+            <section class="panel">
+              <h2>Session wieder öffnen</h2>
+              <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">Ermöglicht Studierenden erneut Beiträge einzureichen.</p>
+              <form action="{{ url_for('reopen_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post">
+                <button class="secondary" type="submit" style="width:100%;">Wieder öffnen</button>
+              </form>
             </section>
           {% endif %}
         </aside>

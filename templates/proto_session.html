@@ -6,24 +6,72 @@
     <title>{{ subject.title }} – {{ session.semester }}</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f5f5; color: #1a1a1a; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; -webkit-text-size-adjust: 100%; }
       .header { background: #1a1a1a; color: #fff; padding: 1rem 1.2rem; }
-      .header h1 { font-size: 1.1rem; font-weight: 700; }
-      .header p { font-size: 0.85rem; color: #aaa; margin-top: 0.15rem; }
-      .closed-banner { background: #fff3cd; border-bottom: 1px solid #ffc107; padding: 1rem 1.2rem; font-size: 0.9rem; }
-      .section { padding: 1rem 1.2rem; }
-      .section h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 0.6rem; }
+      .header h1 { font-size: 1.15rem; font-weight: 700; line-height: 1.3; }
+      .header p { font-size: 0.85rem; color: #aaa; margin-top: 0.2rem; }
+      .closed-banner { background: #fff3cd; border-bottom: 1px solid #ffc107; padding: 0.9rem 1.2rem; font-size: 0.9rem; }
+      .section { padding: 1.1rem 1.2rem; }
+      .section h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 0.7rem; }
       textarea {
-        width: 100%; min-height: 160px; font-size: 1rem; line-height: 1.5;
-        padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px;
-        resize: vertical; background: #fff;
-        font-family: inherit;
+        width: 100%; min-height: 220px; font-size: 1rem; line-height: 1.6;
+        padding: 0.9rem; border: 2px solid #ddd; border-radius: 10px;
+        resize: vertical; background: #fff; font-family: inherit;
+        -webkit-appearance: none;
       }
       textarea:focus { outline: none; border-color: #c8a000; }
-      .status { font-size: 0.8rem; color: #888; margin-top: 0.4rem; min-height: 1.2em; }
-      .divider { border: none; border-top: 1px solid #e0e0e0; margin: 0.5rem 0; }
-      .contribution { background: #fff; border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+      .status { font-size: 0.8rem; color: #888; margin-top: 0.5rem; min-height: 1.2em; }
+      .submit-btn {
+        display: block; width: 100%; padding: 0.9rem;
+        background: #c8a000; color: #fff; border: none; border-radius: 10px;
+        font-size: 1rem; font-weight: 700; cursor: pointer; margin-top: 0.75rem;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .submit-btn:active { background: #a88600; }
+      .submit-btn.done { background: #3a7d44; }
+      .thanks-section { display: none; padding: 2rem 1.2rem 1rem; text-align: center; }
+      .thanks-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+      .thanks-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem; color: #1a1a1a; }
+      .thanks-sub { font-size: 0.95rem; color: #555; line-height: 1.5; margin-bottom: 1.5rem; }
+      .edit-again {
+        margin-bottom: 1.5rem; padding: 0.9rem 1rem;
+        background: #fff; border: 1.5px solid #e0e0e0; border-radius: 10px;
+        font-size: 0.9rem; color: #444; text-align: center;
+      }
+      .edit-again a { color: #c8a000; font-weight: 600; text-decoration: none; }
+      .share-invite { font-size: 0.9rem; color: #666; line-height: 1.5; margin-bottom: 0.6rem; text-align: center; }
+      .share-btn {
+        display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+        margin-top: 1rem; width: 100%; padding: 0.8rem;
+        background: #fff; border: 1.5px solid #ddd; border-radius: 10px;
+        font-size: 0.95rem; font-weight: 500; color: #333; cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .share-btn:active { background: #f0f0f0; }
+      .divider { border: none; border-top: 1px solid #e0e0e0; }
+      .contribution { background: #fff; border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 0.6rem; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; }
       .contribution.own { border-left: 3px solid #c8a000; }
+
+      /* QR modal */
+      .qr-overlay {
+        display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+        z-index: 100; align-items: flex-end; justify-content: center;
+      }
+      .qr-overlay.open { display: flex; }
+      .qr-sheet {
+        background: #fff; border-radius: 20px 20px 0 0; padding: 1.5rem 1.5rem 2.5rem;
+        width: 100%; max-width: 480px; text-align: center;
+        animation: slideUp 0.25s ease;
+      }
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      .qr-sheet h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.3rem; }
+      .qr-sheet p { font-size: 0.85rem; color: #666; margin-bottom: 1.2rem; }
+      #qr-canvas { margin: 0 auto; display: block; }
+      .qr-close {
+        margin-top: 1.2rem; width: 100%; padding: 0.85rem;
+        background: #1a1a1a; color: #fff; border: none; border-radius: 10px;
+        font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -37,16 +85,37 @@
     {% endif %}
 
     {% if session.status == 'open' %}
-      <div class="section">
+      <!-- Eingabe-Bereich -->
+      <div class="section" id="input-section">
         <h2>Dein Beitrag</h2>
         <textarea id="own-text" placeholder="Schreibe hier dein Gedächtnisprotokoll…">{{ own_contribution.text if own_contribution else '' }}</textarea>
         <p class="status" id="save-status"></p>
+        <button class="submit-btn" id="submit-btn" onclick="submitContribution()">Beitrag abschicken</button>
+      </div>
+
+      <!-- Danke-Bereich -->
+      <div class="thanks-section" id="thanks-section">
+        <div class="thanks-icon">🎉</div>
+        <p class="thanks-title">Danke für deinen Beitrag!</p>
+        <p class="thanks-sub">Du hilfst damit Studierenden, die diese Prüfung noch vor sich haben. Jeder Hinweis zählt.</p>
+        <div class="edit-again">
+          Doch noch was vergessen? <a href="#" onclick="return focusEditor()">Hier kannst du noch einmal weiter bearbeiten.</a>
+        </div>
+        <p class="share-invite">Je mehr mitmachen, desto vollständiger wird das Protokoll.<br>Teile den QR-Code und bring andere dazu!</p>
+        <img src="/session/{{ session.token }}/qr.png" style="display:block; margin:0.75rem auto 0; width:min(260px, 80vw); height:auto; border-radius:12px;">
       </div>
       <hr class="divider">
     {% elif own_contribution %}
       <div class="section">
         <h2>Dein Beitrag</h2>
         <div class="contribution own">{{ own_contribution.text }}</div>
+        <p class="share-invite" style="margin-top:1rem;">Je mehr mitmachen, desto vollständiger wird das Protokoll.<br>Bring auch andere dazu!</p>
+        <button class="share-btn" onclick="openQR()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+          </svg>
+          Teilen
+        </button>
       </div>
       <hr class="divider">
     {% endif %}
@@ -60,6 +129,25 @@
       </div>
     {% endif %}
 
+    <!-- QR Modal -->
+    <div class="qr-overlay" id="qr-overlay" onclick="if(event.target===this)closeQR()">
+      <div class="qr-sheet">
+        <h3>Session teilen</h3>
+        <p>Andere scannen diesen Code und kommen direkt zur Eingabe.</p>
+        <img src="/session/{{ session.token }}/qr.png" width="220" height="220" alt="QR-Code" style="display:block; margin:0 auto; border-radius:8px;">
+        <button class="qr-close" onclick="closeQR()">Schließen</button>
+      </div>
+    </div>
+
+    <script>
+      function openQR() {
+        document.getElementById('qr-overlay').classList.add('open');
+      }
+      function closeQR() {
+        document.getElementById('qr-overlay').classList.remove('open');
+      }
+    </script>
+
     {% if session.status == 'open' %}
     <script>
       const textarea = document.getElementById('own-text');
@@ -71,6 +159,26 @@
         status.textContent = 'Wird gespeichert…';
         timer = setTimeout(save, 1500);
       });
+
+      async function submitContribution() {
+        clearTimeout(timer);
+        status.textContent = 'Wird gespeichert…';
+        await save();
+        document.getElementById('input-section').style.display = 'none';
+        var thanks = document.getElementById('thanks-section');
+        thanks.style.display = 'block';
+        thanks.scrollIntoView({behavior: 'smooth', block: 'start'});
+      }
+
+      function focusEditor() {
+        document.getElementById('thanks-section').style.display = 'none';
+        var inputSection = document.getElementById('input-section');
+        inputSection.style.display = 'block';
+        var ta = document.getElementById('own-text');
+        ta.scrollIntoView({behavior: 'smooth', block: 'center'});
+        ta.focus();
+        return false;
+      }
 
       async function save() {
         try {

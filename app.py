@@ -1002,6 +1002,21 @@ def create_proto_session(subject_id: str):
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
+@app.get("/session/<token>/qr.png")
+def proto_session_qr(token: str):
+    import qrcode, io
+    session = catalog.get_proto_session_by_token(token)
+    if not session:
+        abort(404)
+    url = request.url_root.rstrip("/") + f"/session/{token}"
+    img = qrcode.make(url)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype="image/png")
+
+
 @app.get("/session/<token>")
 def proto_session_view(token: str):
     session = catalog.get_proto_session_by_token(token)
@@ -1053,6 +1068,25 @@ def update_proto_session_semester(subject_id: str, session_id: str):
     with catalog._connect() as db:
         db.execute("update proto_sessions set semester = ?, updated_at = ? where id = ?",
                    (semester, datetime.now().isoformat(), session_id))
+        db.commit()
+    return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/update-pdf-header")
+@require_role("editor")
+def update_proto_session_pdf_header(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    pdf_title = request.form.get("pdf_title", "").strip()
+    subtitle_mode = request.form.get("subtitle_mode", "default")
+    if subtitle_mode == "none":
+        pdf_subtitle = "__none__"
+    elif subtitle_mode == "custom":
+        pdf_subtitle = request.form.get("pdf_subtitle", "").strip()
+    else:
+        pdf_subtitle = ""
+    catalog.save_proto_session_pdf_header(session_id, pdf_title, pdf_subtitle)
     return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
 
 
@@ -1065,6 +1099,20 @@ def close_proto_session(subject_id: str, session_id: str):
     catalog.close_proto_session(session_id)
     flash("Session geschlossen.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+@app.post("/subjects/<subject_id>/sessions/<session_id>/reopen")
+@require_role("editor")
+def reopen_proto_session(subject_id: str, session_id: str):
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    with catalog._connect() as db:
+        db.execute("update proto_sessions set status = 'open', updated_at = ? where id = ?",
+                   (datetime.now().isoformat(), session_id))
+        db.commit()
+    flash("Session wieder geöffnet.", "success")
+    return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
 
 
 @app.post("/subjects/<subject_id>/sessions/<session_id>/contributions/<contribution_id>/delete")
@@ -1178,4 +1226,4 @@ def release_proto_session(subject_id: str, session_id: str):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host="0.0.0.0", port=5001, debug=False)

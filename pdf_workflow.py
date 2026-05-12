@@ -552,10 +552,18 @@ def generate_proto_pdf(*, content: str, subject: dict, session: dict, out_path) 
     meta_style = ParagraphStyle("meta", parent=styles["Normal"], fontSize=9, textColor=(0.4, 0.4, 0.4), spaceAfter=12)
     body_style = ParagraphStyle("body", parent=styles["Normal"], fontSize=10, leading=14, spaceAfter=8, alignment=TA_LEFT)
 
-    story = [
-        Paragraph(subject["title"], title_style),
-        Paragraph(f"Gedächtnisprotokoll · {session['semester']}", meta_style),
-    ]
+    pdf_title = session.get("pdf_title") or subject["title"]
+    raw_subtitle = session.get("pdf_subtitle", "")
+    if raw_subtitle == "__none__":
+        pdf_subtitle = ""
+    elif raw_subtitle == "":
+        pdf_subtitle = f"Gedächtnisprotokoll · {session['semester']}"
+    else:
+        pdf_subtitle = raw_subtitle
+
+    story = [Paragraph(pdf_title, title_style)]
+    if pdf_subtitle:
+        story.append(Paragraph(pdf_subtitle, meta_style))
 
     for para in content.split("\n\n"):
         para = para.strip()

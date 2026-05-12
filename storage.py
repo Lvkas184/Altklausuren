@@ -332,6 +332,8 @@ class Catalog:
                 """
             )
             self._ensure_column(db, "drive_sync", "drive_folder_path", "text not null default ''")
+            self._ensure_column(db, "proto_sessions", "pdf_title", "text not null default ''")
+            self._ensure_column(db, "proto_sessions", "pdf_subtitle", "text not null default ''")
             db.commit()
 
     def _migrate_json_catalog(self) -> None:
@@ -536,6 +538,14 @@ class Catalog:
             db.execute(
                 "update proto_sessions set editor_content = ?, updated_at = ? where id = ?",
                 (content, _now(), session_id),
+            )
+            db.commit()
+
+    def save_proto_session_pdf_header(self, session_id: str, pdf_title: str, pdf_subtitle: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update proto_sessions set pdf_title = ?, pdf_subtitle = ?, updated_at = ? where id = ?",
+                (pdf_title, pdf_subtitle, _now(), session_id),
             )
             db.commit()
 
