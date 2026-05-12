@@ -62,11 +62,11 @@ class Catalog:
         sort_order = submission.get("sort_order")
         with self._connect() as db:
             if sort_order is None:
-                max_order = db.execute(
-                    "select coalesce(max(sort_order), 0) from submissions where subject_id = ?",
+                db.execute(
+                    "update submissions set sort_order = sort_order + 1 where subject_id = ?",
                     (subject_id,),
-                ).fetchone()[0]
-                sort_order = max_order + 1
+                )
+                sort_order = 1
             now = _now()
             db.execute(
                 """
