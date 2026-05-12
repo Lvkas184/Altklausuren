@@ -219,44 +219,43 @@ def _build_cover(subject: dict, entries: list[dict]) -> BytesIO:
     width, height = A4
 
     left = 20 * mm
-    top = height - 34 * mm
+    top = height - 20 * mm
 
     pdf.setFillColor(colors.black)
-    pdf.setFont("Helvetica", 18)
+    pdf.setFont("Helvetica", 14)
     pdf.drawString(left, top, "Forum")
-    pdf.drawString(left, top - 9 * mm, "Wirtschaftsinformatik")
-    pdf.drawString(left, top - 18 * mm, "Karlsruher Institut f\u00fcr Technologie")
+    pdf.drawString(left, top - 7 * mm, "Wirtschaftsinformatik")
+    pdf.drawString(left, top - 14 * mm, "Karlsruher Institut f\u00fcr Technologie")
 
     pdf.setFont("Helvetica", 9)
-    pdf.drawString(left, top - 29 * mm, "Kaiserstra\u00dfe 93, Geb. 05.20, Raum 3C-01  \u2022  76131 Karlsruhe")
-    pdf.drawString(left, top - 36 * mm, "Telefon: (0721) 608 - 46879")
-    pdf.drawString(left, top - 43 * mm, "Internet: www.forum-wi.de / altklausuren@forum-wi.de")
+    pdf.drawString(left, top - 21 * mm, "Kaiserstra\u00dfe 93, Geb. 05.20, Raum 3C-01  \u2022  76131 Karlsruhe")
+    pdf.drawString(left, top - 27 * mm, "Telefon: (0721) 608 - 46879")
+    pdf.drawString(left, top - 33 * mm, "Internet: www.forum-wi.de / altklausuren@forum-wi.de")
 
     logo = _template_logo()
     if logo:
-        pdf.drawImage(logo, width - 72 * mm, top - 45 * mm, width=48 * mm, height=48 * mm, mask="auto")
+        pdf.drawImage(logo, width - 60 * mm, top - 38 * mm, width=38 * mm, height=38 * mm, mask="auto")
 
-    rule_y = top - 45 * mm
+    rule_y = top - 38 * mm
     pdf.setLineWidth(0.8)
     pdf.line(left, rule_y, width - 20 * mm, rule_y)
 
-    title_y = rule_y - 24 * mm
+    title_y = rule_y - 14 * mm
     max_title_width = width - left - 20 * mm
-    title_font_size = 36
+    title_font_size = 30
     pdf.setFont("Helvetica", title_font_size)
-    while pdf.stringWidth(subject["title"], "Helvetica", title_font_size) > max_title_width and title_font_size > 16:
+    while pdf.stringWidth(subject["title"], "Helvetica", title_font_size) > max_title_width and title_font_size > 14:
         title_font_size -= 1
         pdf.setFont("Helvetica", title_font_size)
     pdf.drawString(left, title_y, subject["title"])
-    pdf.setFont("Helvetica", 20)
-    pdf.drawString(left, title_y - 13 * mm, "Klausurensammlung")
+    pdf.setFont("Helvetica", 16)
+    pdf.drawString(left, title_y - 10 * mm, "Klausurensammlung")
 
-    table_y = title_y - 31 * mm
     footer_y = 18 * mm
+    table_y = title_y - 22 * mm
     available_height = table_y - (footer_y + 12 * mm)
     _draw_exam_table(pdf, left + 3 * mm, table_y, entries, available_height=available_height)
 
-    footer_y = 18 * mm
     pdf.line(left, footer_y, width - 20 * mm, footer_y)
     pdf.setFont("Helvetica", 12)
     pdf.drawString(left, footer_y - 6 * mm, subject["title"])
