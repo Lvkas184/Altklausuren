@@ -530,8 +530,9 @@ def _semester_sort_key(term: str) -> tuple:
     return (-1, -1)
 
 
-def generate_proto_pdf(*, content: str, subject: dict, session: dict, out_path: Path) -> None:
-    """Generate a PDF from proto session editor content (plain text, paragraphs preserved)."""
+def generate_proto_pdf(*, content: str, subject: dict, session: dict, out_path) -> None:
+    """Generate a PDF from proto session editor content. out_path may be a Path or BytesIO."""
+    from io import BytesIO as _BytesIO
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
@@ -539,7 +540,7 @@ def generate_proto_pdf(*, content: str, subject: dict, session: dict, out_path: 
     from reportlab.lib.enums import TA_LEFT
 
     doc = SimpleDocTemplate(
-        str(out_path),
+        out_path if isinstance(out_path, _BytesIO) else str(out_path),
         pagesize=A4,
         leftMargin=25 * mm,
         rightMargin=25 * mm,

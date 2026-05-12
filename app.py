@@ -1109,6 +1109,21 @@ def save_proto_session_editor(subject_id: str, session_id: str):
     return {"ok": True}
 
 
+@app.get("/subjects/<subject_id>/sessions/<session_id>/preview-pdf")
+@require_role("editor")
+def preview_proto_session_pdf(subject_id: str, session_id: str):
+    from io import BytesIO
+    from pdf_workflow import generate_proto_pdf
+    session = catalog.get_proto_session_by_id(session_id)
+    if not session or session["subject_id"] != subject_id:
+        abort(404)
+    subject = catalog.get_subject(subject_id)
+    buf = BytesIO()
+    generate_proto_pdf(content=session["editor_content"], subject=subject, session=session, out_path=buf)
+    buf.seek(0)
+    return make_response(buf.read(), 200, {"Content-Type": "application/pdf", "Content-Disposition": "inline"})
+
+
 @app.post("/subjects/<subject_id>/sessions/<session_id>/release")
 @require_role("editor")
 def release_proto_session(subject_id: str, session_id: str):

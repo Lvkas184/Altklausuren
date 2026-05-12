@@ -50,9 +50,8 @@
           <textarea id="editor">{{ session.editor_content }}</textarea>
           <p class="save-status" id="save-status"></p>
           <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
-            <form action="{{ url_for('release_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post"
-              onsubmit="return handleRelease(event)">
-              <button class="primary" type="submit">Freigeben → zur Sammlung</button>
+            <form id="release-form" action="{{ url_for('release_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post">
+              <button class="primary" type="button" id="preview-btn">Vorschau & Freigeben</button>
             </form>
           </div>
         </div>
@@ -72,6 +71,20 @@
         </aside>
       </div>
     </main>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
+      <div style="background:#fff; border-radius:8px; width:85vw; height:90vh; display:flex; flex-direction:column; padding:1rem; gap:0.75rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+          <strong style="font-size:1rem;">PDF-Vorschau</strong>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="primary" id="confirm-release-btn">Freigeben → zur Sammlung</button>
+            <button class="secondary" id="cancel-preview-btn">Abbrechen</button>
+          </div>
+        </div>
+        <iframe id="preview-iframe" src="" style="flex:1; border:1px solid #ddd; border-radius:4px;"></iframe>
+      </div>
+    </div>
 
     <script>
       const editor = document.getElementById('editor');
@@ -108,14 +121,22 @@
         });
       });
 
-      async function handleRelease(e) {
-        e.preventDefault();
-        if (!confirm('Protokoll als PDF freigeben und zur Sammlung hinzufügen?')) return;
+      document.getElementById('preview-btn').addEventListener('click', async () => {
         clearTimeout(timer);
         status.textContent = 'Wird gespeichert…';
         await save();
-        e.target.submit();
-      }
+        document.getElementById('preview-iframe').src = '{{ url_for("preview_proto_session_pdf", subject_id=subject.id, session_id=session.id) }}';
+        document.getElementById('preview-modal').style.display = 'flex';
+      });
+
+      document.getElementById('confirm-release-btn').addEventListener('click', () => {
+        document.getElementById('release-form').submit();
+      });
+
+      document.getElementById('cancel-preview-btn').addEventListener('click', () => {
+        document.getElementById('preview-modal').style.display = 'none';
+        document.getElementById('preview-iframe').src = '';
+      });
     </script>
   </body>
 </html>
