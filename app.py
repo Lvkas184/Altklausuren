@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 import os
+import hmac
+import secrets
 import shutil
 import time
 from datetime import datetime
@@ -73,6 +75,15 @@ if os.getenv("TRUST_PROXY_HEADERS", "").lower() in {"1", "true", "yes"}:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 catalog = Catalog(DATA_DIR)
+
+
+def _csrf_token() -> str:
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+app.jinja_env.globals["csrf_token"] = _csrf_token
+
 
 ROLE_LEVELS = {"viewer": 0, "editor": 1, "admin": 2}
 
@@ -151,6 +162,19 @@ def require_login():
         return None
 
     return redirect(url_for("login", next=request.full_path))
+
+
+@app.before_request
+def check_csrf():
+    if request.method != "POST":
+        return None
+    # Student contribution endpoint is public (no auth, no session cookie required)
+    if request.endpoint == "proto_session_contribute":
+        return None
+    submitted = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
+    expected = session.get("csrf_token", "")
+    if not submitted or not expected or not hmac.compare_digest(submitted, expected):
+        abort(403)
 
 
 @app.get("/healthz")

@@ -117,6 +117,7 @@
           </div>
 
           <form method="post" action="{{ url_for('split_collection_execute', subject_id=subject.id, submission_id=submission.id) }}" id="split-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div id="groups-container">
               {% for group in groups %}
                 {% set i = loop.index0 %}

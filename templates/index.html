@@ -22,6 +22,7 @@
               <strong>{{ current_user.name }}</strong>
               <span>{{ active_role }}</span>
               <form action="{{ url_for('logout') }}" method="post" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="nav-link" style="background:none;border:none;padding:0;cursor:pointer;font:inherit;">Abmelden</button>
               </form>
             </div>

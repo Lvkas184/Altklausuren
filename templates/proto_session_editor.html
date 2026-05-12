@@ -51,6 +51,7 @@
           <p class="save-status" id="save-status"></p>
           <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
             <form id="release-form" action="{{ url_for('release_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="primary" type="button" id="preview-btn">Vorschau & Freigeben</button>
             </form>
           </div>
@@ -101,7 +102,7 @@
         try {
           const resp = await fetch('{{ url_for("save_proto_session_editor", subject_id=subject.id, session_id=session.id) }}', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token() }}'},
             body: JSON.stringify({content: editor.value}),
           });
           status.textContent = resp.ok ? 'Gespeichert.' : 'Fehler.';

@@ -50,6 +50,7 @@
               </div>
               {% if can_edit %}
                 <form action="{{ url_for('regenerate_subject', subject_id=subject.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="secondary small-action" type="submit">Neu erzeugen</button>
                 </form>
               {% endif %}
@@ -79,6 +80,7 @@
                   <article class="submission-row">
                     {% if can_edit %}
                       <form action="{{ url_for('update_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="submission-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="grid three">
                           <label>
                             Semester
@@ -124,6 +126,7 @@
                         <a class="secondary small-action" href="{{ url_for('split_collection_view', subject_id=subject.id, submission_id=submission.id) }}">Sammlung aufteilen</a>
                       {% endif %}
                       <form action="{{ url_for('delete_subject_submission', subject_id=subject.id, submission_id=submission.id) }}" method="post" class="delete-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="danger small-action">Löschen</button>
                       </form>
                     {% else %}
@@ -169,21 +172,26 @@
             {% if can_admin %}
               <div class="stack compact">
                 <form action="{{ url_for('check_subject_drive_version', subject_id=subject.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="secondary" type="submit">Sync prüfen</button>
                 </form>
                 <form action="{{ url_for('accept_subject_drive_version', subject_id=subject.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="secondary" type="submit">Drive-Version übernehmen</button>
                 </form>
                 <form action="{{ url_for('force_push_subject_drive_version', subject_id=subject.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="danger" type="submit">App-Version hochladen</button>
                 </form>
                 <form action="{{ url_for('dismiss_subject_drive_conflict', subject_id=subject.id) }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="secondary" type="submit">Konflikt verwerfen</button>
                 </form>
               </div>
               <div class="divider"></div>
               <h3>Drive neu verknüpfen</h3>
               <form action="{{ url_for('relink_subject_drive', subject_id=subject.id) }}" method="post" class="stack compact">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>
                   Drive File-ID
                   <input name="drive_file_id" value="{{ sync.drive_file_id or '' }}" placeholder="1AbCd..." required>
@@ -206,6 +214,7 @@
           <section class="panel">
             <h2>Fach bearbeiten</h2>
             <form action="{{ url_for('update_subject', subject_id=subject.id) }}" method="post" class="stack compact">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <label>
                 Fachname
                 <input name="title" value="{{ subject.title }}" required>
@@ -223,6 +232,7 @@
             <div class="divider"></div>
             <form action="{{ url_for('delete_subject', subject_id=subject.id) }}" method="post"
               onsubmit="return confirm('Fach und alle lokalen Daten wirklich loeschen?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="danger" type="submit">Fach loeschen</button>
             </form>
           </section>
@@ -232,6 +242,7 @@
             <section class="panel">
               <h2>Neue PDF hinzufügen</h2>
               <form action="{{ url_for('create_subject_submission', subject_id=subject.id) }}" method="post" enctype="multipart/form-data" class="stack compact">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label class="dropzone compact-dropzone">
                   <input name="pdf" type="file" accept="application/pdf" required>
                   <span>PDF auswählen</span>
@@ -286,6 +297,7 @@
                 </div>
               {% endif %}
               <form action="{{ url_for('create_proto_session', subject_id=subject.id) }}" method="post" class="stack compact">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>
                   Semester
                   <input name="semester" placeholder="z. B. WiSe 2026/27" required>
@@ -299,6 +311,7 @@
             <section class="panel">
               <h2>DRUCK-Sammlung importieren</h2>
               <form action="{{ url_for('import_subject_collection', subject_id=subject.id) }}" method="post" enctype="multipart/form-data" class="stack compact">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>
                   Bestehende Sammlung
                   <input name="pdf" type="file" accept="application/pdf" required>

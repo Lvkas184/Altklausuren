@@ -39,6 +39,7 @@
               <article style="background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:1rem; margin-bottom:0.75rem;">
                 <pre style="white-space:pre-wrap; font-family:inherit; font-size:0.9rem; margin:0 0 0.5rem;">{{ c.text }}</pre>
                 <form action="{{ url_for('delete_proto_contribution', subject_id=subject.id, session_id=session.id, contribution_id=c.id) }}" method="post" style="text-align:right;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="danger small-action" type="submit">Löschen</button>
                 </form>
               </article>
@@ -82,6 +83,7 @@
           <section class="panel">
             <h2>Semester</h2>
             <form action="{{ url_for('update_proto_session_semester', subject_id=subject.id, session_id=session.id) }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input name="semester" value="{{ session.semester }}" style="width:100%; font-size:0.85rem; padding:0.3rem 0.5rem; margin-bottom:0.5rem; box-sizing:border-box;">
               <button class="secondary" type="submit" style="width:100%;">Speichern</button>
             </form>
@@ -90,6 +92,7 @@
           <section class="panel">
             <h2>PDF-Kopfzeile</h2>
             <form action="{{ url_for('update_proto_session_pdf_header', subject_id=subject.id, session_id=session.id) }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <label style="font-size:0.8rem; color:#555; display:block; margin-bottom:0.2rem;">Titel</label>
               <input name="pdf_title" value="{{ session.pdf_title or '' }}" placeholder="{{ subject.title }}" style="width:100%; font-size:0.85rem; padding:0.3rem 0.5rem; margin-bottom:0.75rem; box-sizing:border-box;">
 
@@ -118,6 +121,7 @@
               <h2>Session schließen</h2>
               <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">Schließt die Eingabe für Studierende.</p>
               <form action="{{ url_for('close_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="secondary" type="submit">Session schließen</button>
               </form>
             </section>
@@ -133,6 +137,7 @@
               <h2>Session wieder öffnen</h2>
               <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">Ermöglicht Studierenden erneut Beiträge einzureichen.</p>
               <form action="{{ url_for('reopen_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="secondary" type="submit" style="width:100%;">Wieder öffnen</button>
               </form>
             </section>
@@ -146,6 +151,7 @@
             </p>
             <form action="{{ url_for('delete_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post"
                   onsubmit="return confirm('Session wirklich löschen? Das kann nicht rückgängig gemacht werden.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="danger" type="submit" style="width:100%;">Session löschen</button>
             </form>
           </section>
