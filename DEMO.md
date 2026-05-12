@@ -147,4 +147,4 @@ oder einfach `./start.sh`.
 ## Bekannte offene Punkte
 
 - **CSRF-Schutz fehlt** auf allen POST-Formularen (ausser `/session/<token>/contribute`). Noch nicht implementiert.
-- **SECRET_KEY** sollte in `.env` gesetzt werden (aktuell nur Dev-Default, Warnung beim Start).
+- **SECRET_KEY** ist in `.env` gesetzt (nicht im Git-Repo). Für einen neuen Server eine neue `.env` anlegen: `python -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))"` ausgabe in `.env` schreiben.
