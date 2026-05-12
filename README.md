@@ -12,32 +12,32 @@ Lokale Web-App fuer das Referat Altklausuren. Der erste Workflow ist umgesetzt:
 - Drive-aehnliche Uebersicht ueber alle Sammlungen
 - Suche nach Fach, Modul, Semester, Datum und Notiz
 - PDF-Vorschau fuer den aktuellen druckbaren Stand
+- Protokoll-Sessions: Studierende reichen Gedaechtnisprotokoll-Fragmente per QR-Code ein, Editor fuehrt sie zusammen und gibt das PDF zur Sammlung frei
 
 ## Starten
 
-Die PDF-Abhaengigkeiten liegen lokal in `.vendor`. Falls sie fehlen:
+```bash
+./start.sh             # Voller Admin-Zugriff, kein Login
+./start.sh --viewer    # Simuliert eingeloggten Viewer
+./start.sh --editor    # Simuliert eingeloggten Editor
+./start.sh --admin     # Simuliert eingeloggten Admin (mit Auth-UI)
+```
+
+Die App laeuft auf `http://<LAN-IP>:5001` (Port 5001, gebunden an 0.0.0.0).
+
+Manuell mit eigenem Datenpfad:
 
 ```bash
-python3 -m pip install --target .vendor pypdf reportlab
+ALTKLAUSUREN_DATA_DIR=/pfad/zum/data python app.py
 ```
 
-Dann die App starten. Auf diesem Rechner sollte die Anaconda-Python-Version verwendet werden, weil `.vendor` damit installiert wurde:
+Eine `.env`-Datei im Projektverzeichnis wird automatisch geladen. Mindestinhalt fuer den Betrieb:
 
-```bash
-/opt/anaconda3/bin/python3 app.py
+```
+SECRET_KEY=<langer-zufaelliger-wert>
 ```
 
-Danach im Browser oeffnen:
-
-```text
-http://127.0.0.1:5001
-```
-
-Optional kann das Datenverzeichnis gesetzt werden:
-
-```bash
-ALTKLAUSUREN_DATA_DIR=/pfad/zum/data /opt/anaconda3/bin/python3 app.py
-```
+Generieren: `python -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))"`
 
 ## Google Drive synchronisieren
 
@@ -150,29 +150,41 @@ Statuswerte in der Uebersicht:
 
 ## Zugriffsschutz fuer den Serverbetrieb
 
-Lokal ist der Login standardmaessig deaktiviert. Fuer `altklausuren.forum-wi.de` wird er per Umgebungsvariablen aktiviert:
+Lokal ist der Login standardmaessig deaktiviert. Zwei Auth-Modi werden unterstuetzt:
 
-```bash
+### Variante A: ForumWI Ingress / Authentik Forward-Auth (empfohlen)
+
+```
+AUTH_ENABLED=true
+FORWARD_AUTH_ENABLED=true
+AUTH_ROLE_VIEWER_GROUPS=Aktive,altklausuren-viewer
+AUTH_ROLE_EDITOR_GROUPS=Referat Altklausuren,altklausuren-editor
+AUTH_ROLE_ADMIN_GROUPS=Vorstand,altklausuren-admin
+ADMIN_EMAILS=lukas.heinz@forum-wi.de
+SECRET_KEY=<lange-zufaellige-session-secret>
+TRUST_PROXY_HEADERS=true
+SESSION_COOKIE_SECURE=true
+ALTKLAUSUREN_DATA_DIR=/var/lib/altklausuren
+```
+
+Rollen werden aus Authentik-Gruppen abgeleitet. `ADMIN_EMAILS` erhaelt immer Admin-Rechte unabhaengig von Gruppen.
+
+### Variante B: Google OAuth (alternativ)
+
+```
 AUTH_ENABLED=true
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://altklausuren.forum-wi.de/auth/callback
-DRIVE_ROOT_FOLDER_ID=0AOnFniEMTZ8bUk9PVA
 ALLOWED_GOOGLE_DOMAIN=forum-wi.de
 ADMIN_EMAILS=lukas.heinz@forum-wi.de
 SECRET_KEY=<lange-zufaellige-session-secret>
 TRUST_PROXY_HEADERS=true
+SESSION_COOKIE_SECURE=true
 ALTKLAUSUREN_DATA_DIR=/var/lib/altklausuren
 ```
 
-Der Login prueft dann:
-
-- Google-Konto ist verifiziert
-- E-Mail endet auf `@forum-wi.de`
-- dieses Konto kann den konfigurierten Altklausuren-Drive-Ordner lesen
-
-Wenn die Drive-Pruefung fehlschlaegt, wird der Zugriff auf die App verweigert. Personen mit Schreibfaehigkeiten im Drive werden in der Session als `editor` markiert, reine Leser:innen als `viewer`.
-E-Mails aus `ADMIN_EMAILS` bekommen zusaetzlich Admin-Rechte fuer Drive-Konfiguration, Import und Konfliktaktionen.
+Zugriff nur fuer `@forum-wi.de`-Konten. Drive-Schreibrechte bestimmen `editor` vs. `viewer`.
 
 ## Deployment
 
