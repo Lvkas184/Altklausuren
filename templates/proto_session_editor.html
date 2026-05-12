@@ -63,7 +63,7 @@
             {% for c in contributions %}
               <div class="contrib-card">
                 <pre>{{ c.text }}</pre>
-                <button class="secondary small-action append-btn" data-text="{{ c.text | tojson | e }}">Übernehmen</button>
+                <button class="secondary small-action append-btn" data-index="{{ loop.index0 }}">Übernehmen</button>
               </div>
             {% endfor %}
           {% else %}
@@ -97,9 +97,10 @@
         }
       }
 
+      const CONTRIB_TEXTS = {{ contributions | map(attribute='text') | list | tojson }};
       document.querySelectorAll('.append-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          const text = JSON.parse(btn.dataset.text);
+          const text = CONTRIB_TEXTS[parseInt(btn.dataset.index)];
           const sep = editor.value && !editor.value.endsWith('\n\n') ? '\n\n' : '';
           editor.value += sep + text;
           editor.dispatchEvent(new Event('input'));
