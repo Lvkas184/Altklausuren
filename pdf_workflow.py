@@ -276,13 +276,15 @@ def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[d
     visual_rows = max(13, n_entries)
 
     if available_height is not None:
-        # Shrink row_height so all rows + header fit within available_height
         needed = visual_rows + 1  # data rows + header
-        row_height = min(normal_row_height, available_height / needed)
-        row_height = max(row_height, min_row_height)
-        # Recompute max displayable rows at this row_height
-        max_visual = int(available_height / row_height) - 1
-        visual_rows = min(visual_rows, max_visual)
+        ideal_row_height = available_height / needed
+        if ideal_row_height < min_row_height:
+            # Too many entries to fit at min height; cap how many we show
+            row_height = min_row_height
+            max_data = int(available_height / row_height) - 1
+            visual_rows = min(visual_rows, max(13, max_data))
+        else:
+            row_height = min(normal_row_height, ideal_row_height)
     else:
         row_height = normal_row_height
 
