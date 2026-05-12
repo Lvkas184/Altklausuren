@@ -214,6 +214,10 @@
                 Modulcode
                 <input name="code" value="{{ subject.code or '' }}">
               </label>
+              <label style="flex-direction:row; align-items:center; gap:0.4rem; font-weight:normal;">
+                <input type="checkbox" name="no_cover" value="1" {% if subject.no_cover %}checked{% endif %}>
+                Kein Deckblatt generieren
+              </label>
               <button class="secondary" type="submit">Umbenennen</button>
             </form>
             <div class="divider"></div>

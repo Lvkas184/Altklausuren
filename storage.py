@@ -20,6 +20,7 @@ class Catalog:
         self._ensure_schema()
         self._migrate_json_catalog()
         self._migrate_subjects_without_entries()
+        self._migrate_add_no_cover()
 
     def list_subjects(self) -> list[dict]:
         with self._connect() as db:
@@ -200,11 +201,11 @@ class Catalog:
             db.commit()
         self._audit("subject_deleted", subject_id, {})
 
-    def update_subject(self, subject_id: str, title: str, code: str) -> dict | None:
+    def update_subject(self, subject_id: str, title: str, code: str, no_cover: bool = False) -> dict | None:
         with self._connect() as db:
             db.execute(
-                "update subjects set title = ?, code = ?, updated_at = ? where id = ?",
-                (title, code, _now(), subject_id),
+                "update subjects set title = ?, code = ?, no_cover = ?, updated_at = ? where id = ?",
+                (title, code, int(no_cover), _now(), subject_id),
             )
             db.commit()
         self._audit("subject_updated", subject_id, {"title": title, "code": code})
@@ -246,7 +247,8 @@ class Catalog:
                     code text not null default '',
                     created_at text not null,
                     updated_at text not null,
-                    current_pages integer not null default 0
+                    current_pages integer not null default 0,
+                    no_cover integer not null default 0
                 );
                 create table if not exists submissions (
                     id text primary key,
@@ -456,6 +458,13 @@ class Catalog:
             "strip_uploaded_cover": False,
             "collection_import": True,
         })
+
+    def _migrate_add_no_cover(self) -> None:
+        with self._connect() as db:
+            cols = [row[1] for row in db.execute("pragma table_info(subjects)").fetchall()]
+            if "no_cover" not in cols:
+                db.execute("alter table subjects add column no_cover integer not null default 0")
+                db.commit()
 
     def _migrate_subjects_without_entries(self) -> None:
         with self._connect() as db:

@@ -879,7 +879,8 @@ def update_subject(subject_id: str):
     if not title:
         flash("Fachname darf nicht leer sein.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
-    catalog.update_subject(subject_id, title=title, code=code)
+    no_cover = request.form.get("no_cover") == "1"
+    catalog.update_subject(subject_id, title=title, code=code, no_cover=no_cover)
     flash("Fach wurde umbenannt.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 

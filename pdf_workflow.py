@@ -113,9 +113,10 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
         return {"current_pages": page_count, "regenerated": True, "preserved_import": True}
 
     writer = PdfWriter()
-    cover_pdf = _build_cover(subject, submissions)
-    cover_reader = PdfReader(cover_pdf)
-    writer.add_page(cover_reader.pages[0])
+    if not subject.get("no_cover"):
+        cover_pdf = _build_cover(subject, submissions)
+        cover_reader = PdfReader(cover_pdf)
+        writer.add_page(cover_reader.pages[0])
 
     body_pages = 0
     for submission in submissions:
