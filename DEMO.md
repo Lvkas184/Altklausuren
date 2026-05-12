@@ -11,9 +11,7 @@ cd /Users/lukas184/Altklausuren/Altklausuren-1
 ./start.sh
 ```
 
-Die App läuft dann auf:
-- **Lokal:** http://127.0.0.1:5001
-- **Im LAN (Handy, andere Rechner):** http://172.17.11.139:5001 *(IP kann sich nach Netzwechsel ändern – steht beim Start in der Konsole)*
+Die App läuft dann auf **http://172.17.11.139:5001** (IP steht beim Start in der Konsole, falls du in einem anderen Netzwerk bist).
 
 Die echten Daten liegen in `/Users/lukas184/Altklausuren/Altklausuren/data/`.
 
@@ -28,7 +26,6 @@ Um einen eingeloggten Nutzer zu simulieren, Server mit Flag starten:
 ```bash
 ./start.sh --viewer    # Nur lesen, keine Bearbeitungsmöglichkeiten
 ./start.sh --editor    # Klausuren hochladen, Sessions verwalten
-./start.sh --admin     # Wie editor, aber auch Fächer anlegen/löschen, Einstellungen
 ./start.sh             # Kein Auth – direkt voller Admin-Zugriff
 ```
 
