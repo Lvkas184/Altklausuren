@@ -51,7 +51,7 @@
           <p class="save-status" id="save-status"></p>
           <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
             <form action="{{ url_for('release_proto_session', subject_id=subject.id, session_id=session.id) }}" method="post"
-              onsubmit="return confirm('Protokoll als PDF freigeben und zur Sammlung hinzufügen?')">
+              onsubmit="return handleRelease(event)">
               <button class="primary" type="submit">Freigeben → zur Sammlung</button>
             </form>
           </div>
@@ -102,6 +102,15 @@
         editor.value += sep + text;
         editor.dispatchEvent(new Event('input'));
         editor.scrollTop = editor.scrollHeight;
+      }
+
+      async function handleRelease(e) {
+        e.preventDefault();
+        if (!confirm('Protokoll als PDF freigeben und zur Sammlung hinzufügen?')) return;
+        clearTimeout(timer);
+        status.textContent = 'Wird gespeichert…';
+        await save();
+        e.target.submit();
       }
     </script>
   </body>
