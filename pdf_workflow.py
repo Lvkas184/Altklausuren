@@ -251,7 +251,10 @@ def _build_cover(subject: dict, entries: list[dict]) -> BytesIO:
     pdf.setFont("Helvetica", 20)
     pdf.drawString(left, title_y - 13 * mm, "Klausurensammlung")
 
-    _draw_exam_table(pdf, left + 3 * mm, title_y - 31 * mm, entries)
+    table_y = title_y - 31 * mm
+    footer_y = 18 * mm
+    available_height = table_y - (footer_y + 12 * mm)
+    _draw_exam_table(pdf, left + 3 * mm, table_y, entries, available_height=available_height)
 
     footer_y = 18 * mm
     pdf.line(left, footer_y, width - 20 * mm, footer_y)
@@ -263,11 +266,37 @@ def _build_cover(subject: dict, entries: list[dict]) -> BytesIO:
     return buffer
 
 
-def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[dict]) -> None:
+def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[dict], available_height: float | None = None) -> None:
     headers = ["Pr\u00fcfungsdatum", "Dozent", "L\u00f6sung"]
     widths = [61 * mm, 64 * mm, 29 * mm]
-    row_height = 7.55 * mm
-    rows = max(13, min(18, len(entries) + 1))
+    normal_row_height = 7.55 * mm
+    min_row_height = 4.5 * mm
+
+    n_entries = len(entries)
+    # Minimum visual rows even when few entries; expand to fit all entries
+    visual_rows = max(13, n_entries)
+
+    if available_height is not None:
+        # Shrink row_height so all rows + header fit within available_height
+        needed = visual_rows + 1  # data rows + header
+        row_height = min(normal_row_height, available_height / needed)
+        row_height = max(row_height, min_row_height)
+        # Recompute max displayable rows at this row_height
+        max_visual = int(available_height / row_height) - 1
+        visual_rows = min(visual_rows, max_visual)
+    else:
+        row_height = normal_row_height
+
+    font_size = 9
+    header_font_size = 14
+    if row_height < 6.5 * mm:
+        font_size = 8
+        header_font_size = 12
+    if row_height < 5.5 * mm:
+        font_size = 7
+        header_font_size = 10
+
+    rows = visual_rows
     table_width = sum(widths)
     table_height = row_height * (rows + 1)
 
@@ -286,23 +315,24 @@ def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[d
         current_x += width
         pdf.line(current_x, y_top, current_x, y_top - table_height)
 
-    pdf.setFont("Helvetica-Bold", 14)
+    pdf.setFont("Helvetica-Bold", header_font_size)
+    header_text_y = y_top - row_height * 0.75
     current_x = x + 2 * mm
     for header, width in zip(headers, widths):
-        pdf.drawString(current_x, y_top - 5.7 * mm, header)
+        pdf.drawString(current_x, header_text_y, header)
         current_x += width
 
-    pdf.setFont("Helvetica", 9)
+    pdf.setFont("Helvetica", font_size)
     sorted_entries = sorted(entries, key=lambda entry: tuple(-x for x in _semester_sort_key(entry.get("term", ""))))
     for index, entry in enumerate(sorted_entries[:rows], start=1):
-        row_y = y_top - index * row_height - 5.0 * mm
+        row_y = y_top - index * row_height - row_height * 0.66
         exam_date = _display_exam_date(entry)
         instructor = entry.get("instructor") or entry.get("dozent") or ""
         solution = _display_solution(entry)
         values = [exam_date, instructor, solution]
         current_x = x + 2 * mm
         for value, width in zip(values, widths):
-            pdf.drawString(current_x, row_y, _fit(value, width - 4 * mm, pdf, "Helvetica", 9))
+            pdf.drawString(current_x, row_y, _fit(value, width - 4 * mm, pdf, "Helvetica", font_size))
             current_x += width
 
 
