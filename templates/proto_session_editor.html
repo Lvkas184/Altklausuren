@@ -15,7 +15,7 @@
       }
       textarea#editor:focus { outline: none; border-color: var(--accent, #c8a000); }
       .contrib-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.6rem; }
-      .contrib-card pre { white-space: pre-wrap; font-family: inherit; font-size: 0.85rem; margin: 0 0 0.4rem; }
+      .contrib-card pre { white-space: pre-wrap; font-family: inherit; font-size: 0.85rem; margin: 0 0 0.4rem; max-height: 12rem; overflow-y: auto; }
       .save-status { font-size: 0.8rem; color: #888; margin-top: 0.4rem; min-height: 1.2em; }
     </style>
   </head>
@@ -63,7 +63,7 @@
             {% for c in contributions %}
               <div class="contrib-card">
                 <pre>{{ c.text }}</pre>
-                <button class="secondary small-action" onclick="appendToEditor({{ c.text | tojson }})">Übernehmen</button>
+                <button class="secondary small-action append-btn" data-text="{{ c.text | tojson | e }}">Übernehmen</button>
               </div>
             {% endfor %}
           {% else %}
@@ -97,12 +97,15 @@
         }
       }
 
-      function appendToEditor(text) {
-        const sep = editor.value && !editor.value.endsWith('\n\n') ? '\n\n' : '';
-        editor.value += sep + text;
-        editor.dispatchEvent(new Event('input'));
-        editor.scrollTop = editor.scrollHeight;
-      }
+      document.querySelectorAll('.append-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const text = JSON.parse(btn.dataset.text);
+          const sep = editor.value && !editor.value.endsWith('\n\n') ? '\n\n' : '';
+          editor.value += sep + text;
+          editor.dispatchEvent(new Event('input'));
+          editor.scrollTop = editor.scrollHeight;
+        });
+      });
 
       async function handleRelease(e) {
         e.preventDefault();
