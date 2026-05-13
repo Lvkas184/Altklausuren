@@ -46,6 +46,7 @@
         <div class="panel upload-panel">
           <h2>Neue PDF einordnen</h2>
           <form action="{{ url_for('create_submission') }}" method="post" enctype="multipart/form-data" class="stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>
               Fach
               <select name="subject_id" required>
@@ -109,6 +110,7 @@
           <section class="panel">
             <h2>Fach anlegen</h2>
             <form action="{{ url_for('create_subject') }}" method="post" class="stack compact">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <label>
                 Fachname
                 <input name="title" required placeholder="z. B. Mathematik 1">
@@ -126,6 +128,7 @@
           <section class="panel">
             <h2>Drive-Sync</h2>
             <form action="{{ url_for('update_drive_config') }}" method="post" class="stack compact">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <label>
                 Lokaler Drive-Ordner
                 <input name="local_root_path" value="{{ drive_config.local_root_path or '' }}" placeholder="/Users/.../GoogleDrive-.../Altklausuren">
@@ -133,6 +136,7 @@
               <button type="submit" class="secondary">Lokalen Ordner speichern</button>
             </form>
             <form action="{{ url_for('sync_local_drive') }}" method="post" class="stack compact drive-sync-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="local_root_path" value="{{ drive_config.local_root_path or '' }}">
               <button type="submit">Lokalen Drive importieren</button>
             </form>
@@ -145,6 +149,7 @@
             <div class="divider"></div>
 
             <form action="{{ url_for('update_drive_config') }}" method="post" class="stack compact">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <label>
                 API-Ordner-URL
                 <input name="root_url" value="{{ drive_config.root_url or 'https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA' }}" placeholder="Google-Drive-Ordner">
@@ -152,6 +157,7 @@
               <button type="submit" class="secondary">API-Ordner speichern</button>
             </form>
             <form action="{{ url_for('sync_drive') }}" method="post" class="stack compact drive-sync-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="root_url" value="{{ drive_config.root_url or 'https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA' }}">
               <button type="submit">API-Sync starten</button>
             </form>
@@ -163,6 +169,7 @@
             <div class="divider"></div>
 
             <form action="{{ url_for('push_all_to_drive') }}" method="post" class="stack compact drive-sync-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit">Alle Fächern nach Drive pushen</button>
             </form>
             <p class="sync-meta">Pusht aktuelle.pdf (bzw. einzelseiten.pdf) fuer jedes verknuepfte Fach.</p>

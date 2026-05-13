@@ -20,6 +20,125 @@ class PdfProcessingError(Exception):
     pass
 
 
+_A4_W = 595.276  # points
+_A4_H = 841.890  # points
+
+
+def _find_content_clip_rect(
+    content_bytes: bytes,
+    x_min: float,
+    y_min: float,
+    x_max: float,
+    y_max: float,
+):
+    """Return the largest 're W[*] n' clip rect that lies fully within the given bounds.
+
+    Split landscape scans embed both left-half and right-half content in one stream.
+    Each half is guarded by its own clip rect.  By requiring the rect to fall inside
+    the page's MediaBox we isolate the correct half and can scale from that rect.
+    """
+    best = None
+    best_area = 0.0
+    for m in re.finditer(
+        rb"([+-]?[\d.]+)\s+([+-]?[\d.]+)\s+([+-]?[\d.]+)\s+([+-]?[\d.]+)\s+re\s+W\*?\s+n",
+        content_bytes,
+    ):
+        rx, ry, rw, rh = (
+            float(m.group(1)),
+            float(m.group(2)),
+            float(m.group(3)),
+            float(m.group(4)),
+        )
+        if rw <= 0 or rh <= 0:
+            continue
+        rx1, ry1 = rx + rw, ry + rh
+        if rx >= x_min and rx1 <= x_max and ry >= y_min and ry1 <= y_max:
+            area = rw * rh
+            if area > best_area:
+                best_area = area
+                best = (rx, ry, rx1, ry1)
+    return best
+
+
+def _ensure_a4_reader(source_path: Path) -> PdfReader:
+    """Return a PdfReader where every page is A4.
+
+    If the source is already all-A4, opens it directly.
+    Otherwise uses pikepdf to wrap each page as a Form XObject on a new A4 page,
+    which avoids content-stream rewriting and works reliably on scanned PDFs.
+
+    For split landscape scans (both page halves share one content stream), we detect
+    the actual content clip rect within the page's MediaBox and scale from that rect
+    to fill A4.  This matches the original printed size and makes all pages consistent.
+    """
+    reader = _validate_pdf(source_path)
+    if all(
+        abs(float(p.mediabox.width) - _A4_W) <= 2
+        and abs(float(p.mediabox.height) - _A4_H) <= 2
+        for p in reader.pages
+    ):
+        return reader
+
+    import pikepdf  # optional dep, only needed for non-A4 sources
+
+    with pikepdf.open(str(source_path)) as src:
+        out = pikepdf.Pdf.new()
+        for src_page in src.pages:
+            mb_x0 = float(src_page.mediabox[0])
+            mb_y0 = float(src_page.mediabox[1])
+            mb_x1 = float(src_page.mediabox[2])
+            mb_y1 = float(src_page.mediabox[3])
+            mb_w = mb_x1 - mb_x0
+            mb_h = mb_y1 - mb_y0
+
+            # Read content bytes for clip-rect detection.
+            contents_obj = src_page.obj.get("/Contents")
+            content_bytes = b""
+            if contents_obj is not None:
+                try:
+                    if isinstance(contents_obj, pikepdf.Array):
+                        content_bytes = b" ".join(s.read_bytes() for s in contents_obj)
+                    else:
+                        content_bytes = contents_obj.read_bytes()
+                except Exception:
+                    pass
+
+            clip = _find_content_clip_rect(content_bytes, mb_x0, mb_y0, mb_x1, mb_y1)
+            xobj = out.copy_foreign(src_page.as_form_xobject())
+
+            if clip and (clip[2] - clip[0]) > 0.5 * mb_w and (clip[3] - clip[1]) > 0.5 * mb_h:
+                # Scale from content clip rect → A4 (content fills the page at natural size)
+                cx0, cy0, cx1, cy1 = clip
+                sx = _A4_W / (cx1 - cx0)
+                sy = _A4_H / (cy1 - cy0)
+                tx = -cx0 * sx
+                ty = -cy0 * sy
+                # Restrict the XObject's visible area to the detected clip rect so that
+                # the opposite half's content is clipped away.
+                xobj["/BBox"] = pikepdf.Array([cx0, cy0, cx1, cy1])
+            else:
+                # Fallback: scale from the full MediaBox
+                sx = _A4_W / mb_w
+                sy = _A4_H / mb_h
+                tx = -mb_x0 * sx
+                ty = -mb_y0 * sy
+
+            stream = pikepdf.Stream(out, f"q {sx} 0 0 {sy} {tx} {ty} cm /Pg Do Q".encode())
+            page_dict = out.make_indirect(pikepdf.Dictionary(
+                Type=pikepdf.Name.Page,
+                MediaBox=pikepdf.Array([0, 0, _A4_W, _A4_H]),
+                Contents=stream,
+                Resources=pikepdf.Dictionary(
+                    XObject=pikepdf.Dictionary(Pg=xobj)
+                ),
+            ))
+            out.pages.append(pikepdf.Page(page_dict))
+        buf = BytesIO()
+        out.save(buf)
+        buf.seek(0)
+        return PdfReader(buf)
+
+
 def append_submission(
     *,
     subject: dict,
@@ -54,7 +173,7 @@ def append_submission(
     writer.add_page(cover_reader.pages[0])
 
     added_pages = 0
-    for page in incoming_reader.pages[uploaded_start:]:
+    for page in _ensure_a4_reader(upload_path).pages[uploaded_start:]:
         writer.add_page(page)
         added_pages += 1
 
@@ -121,7 +240,7 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
     body_pages = 0
     for submission in submissions:
         upload_path = _stored_upload_path(subject_dir, submission)
-        reader = _validate_pdf(upload_path)
+        reader = _ensure_a4_reader(upload_path)
         start = _body_start_for_submission(submission, len(reader.pages), len(submissions))
         for page in reader.pages[start:]:
             writer.add_page(page)
