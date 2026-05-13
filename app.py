@@ -5,6 +5,7 @@ import os
 import hmac
 import secrets
 import shutil
+import socket
 import time
 from datetime import datetime
 from functools import wraps
@@ -75,6 +76,23 @@ if os.getenv("TRUST_PROXY_HEADERS", "").lower() in {"1", "true", "yes"}:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 catalog = Catalog(DATA_DIR)
+
+
+def _lan_base_url() -> str:
+    """Return the base URL using the LAN IP, even if the request came in via localhost."""
+    host = request.host  # e.g. "127.0.0.1:5001" or "172.17.11.139:5001"
+    hostname = host.split(":")[0]
+    port = host.split(":")[1] if ":" in host else "5001"
+    if hostname in ("127.0.0.1", "localhost", "::1"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            lan_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            lan_ip = hostname
+        return f"http://{lan_ip}:{port}"
+    return request.host_url.rstrip("/")
 
 
 def _csrf_token() -> str:
@@ -1031,7 +1049,7 @@ def create_proto_session(subject_id: str):
         flash("Semester ist erforderlich.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
     proto_sess = catalog.create_proto_session(subject_id, semester)
-    flash(f"Session angelegt. Teilnahme-Link: {request.host_url}session/{proto_sess['token']}", "success")
+    flash(f"Session angelegt. Teilnahme-Link: {_lan_base_url()}/session/{proto_sess['token']}", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
@@ -1188,7 +1206,7 @@ def proto_session_moderation(subject_id: str, session_id: str):
         session=proto_sess,
         subject=subject,
         contributions=contributions,
-        session_url=f"{request.host_url}session/{proto_sess['token']}",
+        session_url=f"{_lan_base_url()}/session/{proto_sess['token']}",
         auth_enabled=AuthConfig.from_env().enabled,
         current_user=current_user(),
     )

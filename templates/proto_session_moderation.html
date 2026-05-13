@@ -52,13 +52,11 @@
         <aside class="side-stack">
           <section class="panel">
             <h2>Teilnahme-Link</h2>
-            <p id="session-url-display" style="font-size:0.8rem; word-break:break-all; margin-bottom:0.5rem;"></p>
+            <p id="session-url-display" style="font-size:0.8rem; word-break:break-all; margin-bottom:0.5rem;">{{ session_url }}</p>
             <button id="copy-session-btn" class="secondary small-action" onclick="copySessionUrl()">Kopieren</button>
           </section>
           <script>
-            var SESSION_PATH = '/session/{{ session.token }}';
-            var sessionUrl = window.location.origin + SESSION_PATH;
-            document.getElementById('session-url-display').textContent = sessionUrl;
+            var sessionUrl = {{ session_url | tojson }};
             function copySessionUrl() {
               var btn = document.getElementById('copy-session-btn');
               if (navigator.clipboard && window.isSecureContext) {
