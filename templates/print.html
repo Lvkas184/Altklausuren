@@ -15,7 +15,7 @@
       <nav class="top-actions">
         <a class="nav-link" href="{{ url_for('subject_detail', subject_id=subject.id) }}">Zurück</a>
         <a class="nav-link" href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF Herunterladen</a>
-        <button class="primary-link print-button" type="button" onclick="window.print()">Drucken</button>
+        <button class="primary-link print-button" type="button" onclick="document.querySelector('iframe').contentWindow.print()">Drucken</button>
       </nav>
     </header>
     <main class="print-preview">
