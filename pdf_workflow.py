@@ -163,6 +163,7 @@ def append_submission(
     if strip_uploaded_cover and len(incoming_reader.pages) == 1:
         raise PdfProcessingError("Das Deckblatt kann nicht entfernt werden, weil die PDF nur eine Seite hat.")
 
+    deckblatt_pages = int(subject.get("deckblatt_pages") or 0)
     writer = PdfWriter()
     existing_body_pages = 0
 
@@ -172,11 +173,7 @@ def append_submission(
     cover_reader = PdfReader(cover_pdf)
     writer.add_page(cover_reader.pages[0])
 
-    added_pages = 0
-    for page in _ensure_a4_reader(upload_path).pages[uploaded_start:]:
-        writer.add_page(page)
-        added_pages += 1
-
+    current_reader = None
     if current_path.exists():
         backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
         shutil.copy2(current_path, backup_path)
@@ -184,8 +181,17 @@ def append_submission(
             current_reader = PdfReader(str(current_path))
         except Exception as exc:
             raise PdfProcessingError("Die bestehende Sammlung konnte nicht als PDF gelesen werden.") from exc
+        # Keep Deckblatt pages pinned before the new upload
+        for page in current_reader.pages[1:1 + deckblatt_pages]:
+            writer.add_page(page)
 
-        for page in current_reader.pages[1:]:
+    added_pages = 0
+    for page in _ensure_a4_reader(upload_path).pages[uploaded_start:]:
+        writer.add_page(page)
+        added_pages += 1
+
+    if current_reader is not None:
+        for page in current_reader.pages[1 + deckblatt_pages:]:
             writer.add_page(page)
             existing_body_pages += 1
 

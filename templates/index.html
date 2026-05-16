@@ -237,17 +237,7 @@
                               data-preview-title="{{ subject.title }}">
                               Vorschau
                             </button>
-                            {% if subject.has_single_pdf %}
-                              <button type="button"
-                                class="preview-button"
-                                data-preview-url="{{ url_for('single_preview_pdf', subject_id=subject.id) }}"
-                                data-download-url="{{ url_for('single_pdf', subject_id=subject.id) }}"
-                                data-preview-title="{{ subject.title }} (Einzelseiten)">
-                                Einzelseiten
-                              </button>
-                            {% else %}
-                              <a href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF Herunterladen</a>
-                            {% endif %}
+                            <a class="nav-link primary-link" href="{{ url_for('print_subject', subject_id=subject.id) }}">Drucken</a>
                             <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>
                           {% else %}
                             <a href="{{ url_for('subject_detail', subject_id=subject.id) }}">Details</a>

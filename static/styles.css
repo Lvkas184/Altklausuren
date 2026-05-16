@@ -745,6 +745,17 @@ button.small-action {
   background: #e0e0e0;
 }
 
+.subject-card a.primary-link {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: #fff;
+}
+
+.subject-card a.primary-link:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
 .preview-button {
   display: inline-flex !important;
   align-items: center;

@@ -19,7 +19,7 @@
         </div>
         <div class="top-actions">
           {% if subject.has_single_pdf %}
-            <a class="nav-link primary-link" href="{{ url_for('single_pdf', subject_id=subject.id) }}">Einzelseiten PDF</a>
+            <a class="nav-link primary-link" href="{{ url_for('single_pdf', subject_id=subject.id) }}">PDF Herunterladen</a>
           {% elif subject.has_current_pdf %}
             <a class="nav-link primary-link" href="{{ url_for('current_pdf', subject_id=subject.id) }}">PDF Herunterladen</a>
           {% endif %}
@@ -226,6 +226,11 @@
               <label style="flex-direction:row; align-items:center; gap:0.4rem; font-weight:normal;">
                 <input type="checkbox" name="no_cover" value="1" {% if subject.no_cover %}checked{% endif %}>
                 Kein Deckblatt generieren
+              </label>
+              <label>
+                Fixierte Deckblatt-Seiten
+                <input type="number" name="deckblatt_pages" value="{{ subject.deckblatt_pages or 0 }}" min="0" max="20" style="width:5rem;">
+                <small>Neue PDFs werden nach diesen Seiten eingefügt (z. B. 2 für mündliche Protokolle)</small>
               </label>
               <button class="secondary" type="submit">Umbenennen</button>
             </form>
