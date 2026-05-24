@@ -5,11 +5,8 @@
 #   ./start.sh --editor   → Simuliert eingeloggten Editor (Klausuren + Sessions verwalten)
 #   ./start.sh --admin    → Simuliert eingeloggten Admin mit Auth-Login-Anzeige
 
-BASE_ENV="ALTKLAUSUREN_DATA_DIR=/Users/lukas184/Altklausuren/Altklausuren/data"
-
 if [ "$1" = "--viewer" ]; then
   exec env \
-    $BASE_ENV \
     SECRET_KEY=dev-secret-key-local \
     AUTH_ENABLED=1 \
     FORWARD_AUTH_ENABLED=1 \
@@ -20,7 +17,6 @@ if [ "$1" = "--viewer" ]; then
     python app.py
 elif [ "$1" = "--editor" ]; then
   exec env \
-    $BASE_ENV \
     SECRET_KEY=dev-secret-key-local \
     AUTH_ENABLED=1 \
     FORWARD_AUTH_ENABLED=1 \
@@ -31,7 +27,6 @@ elif [ "$1" = "--editor" ]; then
     python app.py
 elif [ "$1" = "--admin" ]; then
   exec env \
-    $BASE_ENV \
     SECRET_KEY=dev-secret-key-local \
     AUTH_ENABLED=1 \
     FORWARD_AUTH_ENABLED=1 \
@@ -42,5 +37,5 @@ elif [ "$1" = "--admin" ]; then
     python app.py
 else
   # Kein Auth – direkt als Admin, kein Login-Screen
-  exec env $BASE_ENV python app.py
+  exec python app.py
 fi
