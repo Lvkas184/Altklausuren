@@ -13,7 +13,7 @@ cd /Users/lukas184/Altklausuren/Altklausuren-1
 
 Die App läuft dann auf **http://172.17.11.139:5001** (IP steht beim Start in der Konsole, falls du in einem anderen Netzwerk bist).
 
-Die echten Daten liegen in `/Users/lukas184/Altklausuren/Altklausuren/data/`.
+Die echten Daten liegen in `data/` (im selben Verzeichnis wie der Code).
 
 ---
 
@@ -120,10 +120,10 @@ Altklausuren/data/       ← Echte Daten (NICHT im Git-Repo)
   subjects/<fach-id>/    ← PDFs pro Fach
 ```
 
-**Server immer so starten (damit echte Daten geladen werden):**
+**Server starten:**
 
 ```bash
-ALTKLAUSUREN_DATA_DIR=/Users/lukas184/Altklausuren/Altklausuren/data python app.py
+python app.py
 ```
 
 oder einfach `./start.sh`.

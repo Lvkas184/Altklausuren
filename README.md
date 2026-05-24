@@ -25,10 +25,10 @@ Lokale Web-App fuer das Referat Altklausuren. Der erste Workflow ist umgesetzt:
 
 Die App laeuft auf `http://<LAN-IP>:5001` (Port 5001, gebunden an 0.0.0.0).
 
-Manuell mit eigenem Datenpfad:
+Manuell starten:
 
 ```bash
-ALTKLAUSUREN_DATA_DIR=/pfad/zum/data python app.py
+python app.py
 ```
 
 Eine `.env`-Datei im Projektverzeichnis wird automatisch geladen. Mindestinhalt fuer den Betrieb:
@@ -125,10 +125,10 @@ Credentials und Ordnerzugriff pruefen:
 python3 drive_tools.py check "https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA"
 ```
 
-Der Befehl nutzt dieselbe `.env` wie die Web-App. Fuer lokale Tests sollte `ALTKLAUSUREN_DATA_DIR` auf das Projekt-`data/` zeigen oder beim Befehl ueberschrieben werden:
+Der Befehl nutzt dieselbe `.env` wie die Web-App:
 
 ```bash
-ALTKLAUSUREN_DATA_DIR=/Users/lukas184/Altklausuren/Altklausuren/data python3 drive_tools.py check "https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA"
+python3 drive_tools.py check "https://drive.google.com/drive/u/1/folders/0AOnFniEMTZ8bUk9PVA"
 ```
 
 Weitere Werkzeuge:
