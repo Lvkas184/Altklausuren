@@ -126,6 +126,11 @@
 
           {% if can_admin %}
           <section class="panel">
+            <h2>Einstellungen</h2>
+            <a class="nav-link" href="{{ url_for('admin_settings') }}">Druckkosten konfigurieren</a>
+          </section>
+
+          <section class="panel">
             <h2>Drive-Sync</h2>
             <form action="{{ url_for('update_drive_config') }}" method="post" class="stack compact">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

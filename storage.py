@@ -22,6 +22,7 @@ class Catalog:
         self._migrate_subjects_without_entries()
         self._migrate_add_no_cover()
         self._migrate_add_deckblatt_pages()
+        self._migrate_add_print_mode()
 
     def list_subjects(self) -> list[dict]:
         with self._connect() as db:
@@ -202,11 +203,13 @@ class Catalog:
             db.commit()
         self._audit("subject_deleted", subject_id, {})
 
-    def update_subject(self, subject_id: str, title: str, code: str, no_cover: bool = False, deckblatt_pages: int = 0) -> dict | None:
+    def update_subject(self, subject_id: str, title: str, code: str, no_cover: bool = False, deckblatt_pages: int = 0, print_mode: str = "duplex") -> dict | None:
+        if print_mode not in ("duplex", "2up_duplex"):
+            print_mode = "duplex"
         with self._connect() as db:
             db.execute(
-                "update subjects set title = ?, code = ?, no_cover = ?, deckblatt_pages = ?, updated_at = ? where id = ?",
-                (title, code, int(no_cover), max(0, int(deckblatt_pages)), _now(), subject_id),
+                "update subjects set title = ?, code = ?, no_cover = ?, deckblatt_pages = ?, print_mode = ?, updated_at = ? where id = ?",
+                (title, code, int(no_cover), max(0, int(deckblatt_pages)), print_mode, _now(), subject_id),
             )
             db.commit()
         self._audit("subject_updated", subject_id, {"title": title, "code": code})
@@ -330,6 +333,10 @@ class Catalog:
                     subject_id text,
                     payload text not null default '{}',
                     created_at text not null
+                );
+                create table if not exists app_settings (
+                    key text primary key,
+                    value text not null default ''
                 );
                 """
             )
@@ -630,6 +637,26 @@ class Catalog:
             if "deckblatt_pages" not in cols:
                 db.execute("alter table subjects add column deckblatt_pages integer not null default 0")
                 db.commit()
+
+    def _migrate_add_print_mode(self) -> None:
+        with self._connect() as db:
+            cols = [row[1] for row in db.execute("pragma table_info(subjects)").fetchall()]
+            if "print_mode" not in cols:
+                db.execute("alter table subjects add column print_mode text not null default 'duplex'")
+                db.commit()
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        with self._connect() as db:
+            row = db.execute("select value from app_settings where key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "insert into app_settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
+                (key, value),
+            )
+            db.commit()
 
     def _migrate_subjects_without_entries(self) -> None:
         with self._connect() as db:

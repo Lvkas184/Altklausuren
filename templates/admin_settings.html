@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Einstellungen – Altklausuren</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar app-header">
+        <div class="brand-lockup">
+          <div class="brand-mark">Forum<br>WI</div>
+          <div>
+            <p class="eyebrow">Referat Altklausuren</p>
+            <h1>Einstellungen</h1>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="nav-link" href="{{ url_for('index') }}">Zur Übersicht</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-list">
+            {% for category, message in messages %}
+              <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <section class="panel" style="max-width:480px;">
+        <h2>Druckkosten anpassen</h2>
+        <form action="{{ url_for('admin_settings_save') }}" method="post" class="stack compact">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label>
+            Papierpreis pro Blatt (Cent)
+            <input type="number" name="paper_price_ct" value="{{ paper_ct }}" step="0.01" min="0" required>
+          </label>
+          <label>
+            Tonerpreis pro Seite (Cent)
+            <input type="number" name="toner_price_ct" value="{{ toner_ct }}" step="0.01" min="0" required>
+          </label>
+          <p class="hint">Ein Blatt = beidseitig bedrucktes Papier. Eine Seite = eine bedruckte Seite (Vorder- oder Rückseite).</p>
+          <button type="submit">Speichern</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Kostenübersicht aller Klausuren</h2>
+        <p class="hint" style="margin-bottom:12px;">Preise basierend auf {{ "%.2f"|format(paper_ct) }} ct/Blatt, {{ "%.2f"|format(toner_ct) }} ct/Seite</p>
+        <table class="settings-cost-table">
+          <thead>
+            <tr>
+              <th>Fach</th>
+              <th>Seiten</th>
+              <th>Blätter</th>
+              <th>Modus</th>
+              <th>Papier</th>
+              <th>Toner</th>
+              <th>Gesamt</th>
+              <th>Empfehlung</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in subject_prices %}
+            {% if row.subject.current_pages %}
+            <tr>
+              <td><a href="{{ url_for('subject_detail', subject_id=row.subject.id) }}">{{ row.subject.title }}</a></td>
+              <td>{{ row.subject.current_pages }}</td>
+              <td>{{ row.price.sheets }}</td>
+              <td>{% if row.subject.print_mode == '2up_duplex' %}2-auf-1{% else %}normal{% endif %}</td>
+              <td>{{ "%.2f"|format(row.price.paper_ct) }} ct</td>
+              <td>{{ "%.2f"|format(row.price.toner_ct_total) }} ct</td>
+              <td>{{ "%.2f"|format(row.price.total_ct) }} ct</td>
+              <td><strong>
+                {% if row.price.recommended_ct == 0 %}
+                  Kostenlos
+                {% elif row.price.recommended_ct >= 100 %}
+                  {{ "%.2f"|format(row.price.recommended_ct / 100) }} €
+                {% else %}
+                  {{ row.price.recommended_ct }} ct
+                {% endif %}
+              </strong></td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="price-total">
+              <td colspan="6">Gesamtkosten alle Fächer</td>
+              <td>{{ "%.2f"|format(grand_total_ct) }} ct</td>
+              <td><strong>{{ "%.2f"|format(grand_total_ct / 100) }} €</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

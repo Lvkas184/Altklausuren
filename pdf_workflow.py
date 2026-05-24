@@ -139,6 +139,13 @@ def _ensure_a4_reader(source_path: Path) -> PdfReader:
         return PdfReader(buf)
 
 
+def rotate_archive(archive_dir: Path, keep: int = 5) -> None:
+    """Delete oldest timestamped archive files, keeping the newest `keep` copies."""
+    archives = sorted(archive_dir.glob("current-*.pdf"))
+    for old in archives[:-keep]:
+        old.unlink(missing_ok=True)
+
+
 def append_submission(
     *,
     subject: dict,
@@ -177,6 +184,7 @@ def append_submission(
     if current_path.exists():
         backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
         shutil.copy2(current_path, backup_path)
+        rotate_archive(archive_dir)
         try:
             current_reader = PdfReader(str(current_path))
         except Exception as exc:
@@ -195,12 +203,8 @@ def append_submission(
             writer.add_page(page)
             existing_body_pages += 1
 
-    exports_dir = subject_dir / "exports"
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    export_path = exports_dir / f"{subject['slug']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
     with current_path.open("wb") as output:
         writer.write(output)
-    shutil.copy2(current_path, export_path)
     generate_single_page_pdf(current_path)
 
     return {
@@ -208,7 +212,6 @@ def append_submission(
         "added_pages": added_pages,
         "existing_body_pages": existing_body_pages,
         "current_pages": len(writer.pages),
-        "export_path": str(export_path.relative_to(subject_dir)),
     }
 
 
@@ -229,6 +232,7 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
     if current_path.exists():
         backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
         shutil.copy2(current_path, backup_path)
+        rotate_archive(archive_dir)
 
     if len(submissions) == 1 and submissions[0].get("collection_import"):
         source = _stored_upload_path(subject_dir, submissions[0])
@@ -252,18 +256,13 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
             writer.add_page(page)
             body_pages += 1
 
-    exports_dir = subject_dir / "exports"
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    export_path = exports_dir / f"{subject['slug']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
     with current_path.open("wb") as output:
         writer.write(output)
-    shutil.copy2(current_path, export_path)
     generate_single_page_pdf(current_path)
 
     return {
         "current_pages": len(writer.pages),
         "body_pages": body_pages,
-        "export_path": str(export_path.relative_to(subject_dir)),
         "regenerated": True,
     }
 

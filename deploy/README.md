@@ -73,3 +73,132 @@ HTTPS sollte danach per certbot oder vorhandener Infrastruktur fuer `altklausure
 ```text
 https://altklausuren.forum-wi.de/healthz
 ```
+
+## Tägliches Datenbank-Backup
+
+Das Skript `backup.py` sichert die SQLite-Datenbank täglich:
+- Lokale Kopie in `$ALTKLAUSUREN_DATA_DIR/db-backups/` (7 Tage Rotation)
+- Optionaler Upload nach Google Drive (via `BACKUP_DRIVE_FOLDER_ID`)
+
+Für den Drive-Upload einen Ordner auf drive.google.com anlegen, die Ordner-ID aus der URL kopieren und in `/etc/altklausuren/altklausuren.env` eintragen:
+
+```text
+BACKUP_DRIVE_FOLDER_ID=1AbCdEfGhIjKlMnOpQrStUvWx
+```
+
+Backup-Service und Timer installieren:
+
+```bash
+cp deploy/altklausuren-backup.service /etc/systemd/system/altklausuren-backup.service
+cp deploy/altklausuren-backup.timer   /etc/systemd/system/altklausuren-backup.timer
+systemctl daemon-reload
+systemctl enable --now altklausuren-backup.timer
+```
+
+Status prüfen:
+
+```bash
+systemctl status altklausuren-backup.timer   # Timer-Status
+journalctl -u altklausuren-backup.service    # Backup-Logs
+```
+
+Manuell ausführen (z.B. zum Testen):
+
+```bash
+systemctl start altklausuren-backup.service
+```
+
+## Server einrichten (Schritt für Schritt)
+
+Die App läuft am besten auf einem kleinen Linux-Server (VPS), unabhängig vom eigenen Laptop.
+Empfehlung: **Hetzner Cloud CX22** (~4 €/Monat, 2 vCPU, 4 GB RAM, 40 GB SSD).
+
+### 1. Server bestellen
+
+1. Account anlegen auf [hetzner.com/cloud](https://www.hetzner.com/cloud/)
+2. Neues Projekt anlegen → „Add Server"
+   - Location: Nürnberg oder Falkenstein
+   - Image: **Ubuntu 24.04**
+   - Type: CX22 (4 €/Monat reicht)
+   - SSH-Key hinterlegen (eigenen Public Key einfügen)
+3. Server starten → IP-Adresse notieren
+
+### 2. Domain zeigen lassen
+
+Im DNS-Anbieter von `forum-wi.de` einen A-Record anlegen:
+
+```
+altklausuren.forum-wi.de  →  <IP-Adresse des Servers>
+```
+
+### 3. Server einrichten
+
+```bash
+# Als root einloggen
+ssh root@<IP>
+
+# System aktualisieren
+apt update && apt upgrade -y
+
+# Benötigte Pakete
+apt install -y python3 python3-venv nginx certbot python3-certbot-nginx
+
+# App-User anlegen
+useradd -r -m -d /opt/altklausuren -s /bin/bash altklausuren
+
+# Daten-Verzeichnis
+mkdir -p /var/lib/altklausuren
+chown altklausuren:altklausuren /var/lib/altklausuren
+
+# Konfigurationsverzeichnis
+mkdir -p /etc/altklausuren
+```
+
+### 4. App deployen
+
+```bash
+# Code auf den Server kopieren (vom eigenen Mac aus)
+rsync -av --exclude='.git' --exclude='__pycache__' --exclude='data/' \
+  /Users/lukas184/Altklausuren/Altklausuren-1/ root@<IP>:/opt/altklausuren/
+
+# Auf dem Server: Python-Umgebung einrichten
+su - altklausuren
+cd /opt/altklausuren
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+exit
+```
+
+### 5. Konfiguration anlegen
+
+```bash
+cp /opt/altklausuren/deploy/altklausuren.env.example /etc/altklausuren/altklausuren.env
+# Datei mit echten Werten befüllen (SECRET_KEY, Google-OAuth, Drive-Ordner-IDs)
+nano /etc/altklausuren/altklausuren.env
+```
+
+### 6. Services aktivieren
+
+```bash
+cp /opt/altklausuren/deploy/altklausuren.service         /etc/systemd/system/
+cp /opt/altklausuren/deploy/altklausuren-drive-poll.service /etc/systemd/system/
+cp /opt/altklausuren/deploy/altklausuren-drive-poll.timer   /etc/systemd/system/
+cp /opt/altklausuren/deploy/altklausuren-backup.service  /etc/systemd/system/
+cp /opt/altklausuren/deploy/altklausuren-backup.timer    /etc/systemd/system/
+cp /opt/altklausuren/deploy/nginx-altklausuren.conf      /etc/nginx/sites-available/altklausuren.conf
+ln -s /etc/nginx/sites-available/altklausuren.conf /etc/nginx/sites-enabled/
+
+systemctl daemon-reload
+systemctl enable --now altklausuren.service
+systemctl enable --now altklausuren-drive-poll.timer
+systemctl enable --now altklausuren-backup.timer
+nginx -t && systemctl reload nginx
+```
+
+### 7. HTTPS einrichten
+
+```bash
+certbot --nginx -d altklausuren.forum-wi.de
+```
+
+Danach ist die App unter `https://altklausuren.forum-wi.de` erreichbar — unabhängig vom Mac.

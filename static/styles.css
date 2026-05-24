@@ -511,6 +511,73 @@ button.small-action {
   color: var(--muted);
 }
 
+/* ── PRICE TABLE ─────────────────────────────────────────── */
+
+.price-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.price-table td {
+  padding: 3px 0;
+}
+
+.price-table td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.price-table tr + tr td {
+  border-top: 1px solid var(--border);
+}
+
+.price-table .price-total td {
+  font-weight: 700;
+  padding-top: 6px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.settings-cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.settings-cost-table th,
+.settings-cost-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-cost-table th {
+  font-weight: 700;
+  background: var(--surface);
+}
+
+.settings-cost-table tfoot td {
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  padding-top: 10px;
+}
+
+.settings-cost-table a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.settings-cost-table a:hover {
+  text-decoration: underline;
+}
+
 /* ── SYNC META ─────────────────────────────────────────── */
 
 .sync-meta {

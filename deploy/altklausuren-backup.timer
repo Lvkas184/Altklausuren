@@ -1,0 +1,11 @@
+[Unit]
+Description=Altklausuren daily backup timer
+
+[Timer]
+# Jeden Tag um 03:00 Uhr
+OnCalendar=*-*-* 03:00:00
+# Wenn der Server um 03:00 aus war, beim nächsten Start nachholen
+Persistent=true
+
+[Install]
+WantedBy=timers.target

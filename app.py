@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 import os
 import hmac
@@ -22,7 +23,7 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback, user_from_forward_auth
-from pdf_workflow import PdfProcessingError, append_submission, detect_exam_boundaries, generate_single_page_pdf, regenerate_current_pdf, split_collection
+from pdf_workflow import PdfProcessingError, append_submission, detect_exam_boundaries, generate_single_page_pdf, regenerate_current_pdf, rotate_archive, split_collection
 from drive_client import DriveSetupError
 from drive_sync import (
     CONFLICT,
@@ -136,6 +137,36 @@ def require_role(min_role: str):
         return wrapped
 
     return decorator
+
+
+_DEFAULT_PAPER_CT = 0.72
+_DEFAULT_TONER_CT = 0.50
+
+
+def _recommended_price_ct(total_ct: float) -> int:
+    if total_ct < 10:
+        return 0
+    return math.ceil((total_ct + 20) / 20) * 20
+
+
+def _print_price(pages: int, print_mode: str, paper_ct: float, toner_ct: float) -> dict:
+    if pages <= 0:
+        return {"sheets": 0, "toner_sides": 0, "paper_ct": 0.0, "toner_ct_total": 0.0, "total_ct": 0.0}
+    if print_mode == "2up_duplex":
+        sheets = math.ceil(pages / 4)
+        toner_sides = math.ceil(pages / 2)
+    else:
+        sheets = math.ceil(pages / 2)
+        toner_sides = pages
+    total = round(sheets * paper_ct + toner_sides * toner_ct, 4)
+    return {
+        "sheets": sheets,
+        "toner_sides": toner_sides,
+        "paper_ct": round(sheets * paper_ct, 4),
+        "toner_ct_total": round(toner_sides * toner_ct, 4),
+        "total_ct": total,
+        "recommended_ct": _recommended_price_ct(total),
+    }
 
 
 @app.context_processor
@@ -384,6 +415,10 @@ def subject_detail(subject_id: str):
 
     subject_dir = catalog.subject_dir(subject_id)
     current_path = subject_dir / "current.pdf"
+    paper_ct = float(catalog.get_setting("paper_price_ct", str(_DEFAULT_PAPER_CT)))
+    toner_ct = float(catalog.get_setting("toner_price_ct", str(_DEFAULT_TONER_CT)))
+    pages = subject.get("current_pages") or 0
+    price = _print_price(pages, subject.get("print_mode", "duplex"), paper_ct, toner_ct)
     subject = subject | {
         "has_current_pdf": current_path.exists(),
         "has_single_pdf": (subject_dir / "single.pdf").exists(),
@@ -395,6 +430,9 @@ def subject_detail(subject_id: str):
         max_upload_mb=UPLOAD_LIMIT_MB,
         auth_enabled=AuthConfig.from_env().enabled,
         current_user=current_user(),
+        print_price=price,
+        paper_ct=paper_ct,
+        toner_ct=toner_ct,
     )
 
 
@@ -558,6 +596,7 @@ def import_subject_collection(subject_id: str):
     archive_dir.mkdir(parents=True, exist_ok=True)
     if current_path.exists():
         shutil.copy2(current_path, archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
+        rotate_archive(archive_dir)
     shutil.copy2(upload_path, current_path)
 
     catalog.add_submission(
@@ -935,7 +974,8 @@ def update_subject(subject_id: str):
         deckblatt_pages = int(request.form.get("deckblatt_pages") or 0)
     except ValueError:
         deckblatt_pages = 0
-    catalog.update_subject(subject_id, title=title, code=code, no_cover=no_cover, deckblatt_pages=deckblatt_pages)
+    print_mode = request.form.get("print_mode", "duplex")
+    catalog.update_subject(subject_id, title=title, code=code, no_cover=no_cover, deckblatt_pages=deckblatt_pages, print_mode=print_mode)
     flash("Fach wurde umbenannt.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
@@ -1299,6 +1339,48 @@ def release_proto_session(subject_id: str, session_id: str):
     catalog.release_proto_session(session_id)
     return _regenerate_and_push(subject_id, f"Protokoll freigegeben und zur Sammlung hinzugefügt.")
 
+
+
+@app.get("/admin/settings")
+@require_role("admin")
+def admin_settings():
+    paper_ct = float(catalog.get_setting("paper_price_ct", str(_DEFAULT_PAPER_CT)))
+    toner_ct = float(catalog.get_setting("toner_price_ct", str(_DEFAULT_TONER_CT)))
+    subjects = catalog.list_subjects()
+    subject_prices = []
+    total_ct = 0.0
+    for s in subjects:
+        title_lower = s["title"].lower()
+        if "mündlich" in title_lower or "mundlich" in title_lower or "protokoll" in title_lower:
+            continue
+        pages = s.get("current_pages") or 0
+        price = _print_price(pages, s.get("print_mode", "duplex"), paper_ct, toner_ct)
+        total_ct += price["total_ct"]
+        subject_prices.append({"subject": s, "price": price})
+    subject_prices.sort(key=lambda x: x["subject"]["title"].lower())
+    return render_template(
+        "admin_settings.html",
+        paper_ct=paper_ct,
+        toner_ct=toner_ct,
+        current_user=current_user(),
+        subject_prices=subject_prices,
+        grand_total_ct=round(total_ct, 4),
+    )
+
+
+@app.post("/admin/settings")
+@require_role("admin")
+def admin_settings_save():
+    try:
+        paper_ct = float(request.form.get("paper_price_ct", _DEFAULT_PAPER_CT))
+        toner_ct = float(request.form.get("toner_price_ct", _DEFAULT_TONER_CT))
+    except ValueError:
+        flash("Ungültige Preisangabe.", "error")
+        return redirect(url_for("admin_settings"))
+    catalog.set_setting("paper_price_ct", str(paper_ct))
+    catalog.set_setting("toner_price_ct", str(toner_ct))
+    flash("Preise gespeichert.", "success")
+    return redirect(url_for("admin_settings"))
 
 
 if __name__ == "__main__":

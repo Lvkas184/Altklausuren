@@ -153,6 +153,49 @@
         </section>
 
         <aside class="detail-side side-stack">
+          {% if subject.current_pages %}
+          <section class="panel">
+            <h2>Druckkosten</h2>
+            <table class="price-table">
+              <tr>
+                <td>Seiten</td>
+                <td>{{ subject.current_pages }}</td>
+              </tr>
+              <tr>
+                <td>Blätter</td>
+                <td>{{ print_price.sheets }}</td>
+              </tr>
+              <tr>
+                <td>Papier ({{ "%.2f"|format(paper_ct) }} ct/Blatt)</td>
+                <td>{{ "%.2f"|format(print_price.paper_ct) }} ct</td>
+              </tr>
+              <tr>
+                <td>Toner ({{ "%.2f"|format(toner_ct) }} ct/Seite)</td>
+                <td>{{ "%.2f"|format(print_price.toner_ct_total) }} ct</td>
+              </tr>
+              <tr class="price-total">
+                <td>Gesamt</td>
+                <td>{{ "%.2f"|format(print_price.total_ct) }} ct&ensp;({{ "%.2f"|format(print_price.total_ct / 100) }} €)</td>
+              </tr>
+              <tr class="price-total" style="color:var(--primary-dark);">
+                <td>Empfehlung</td>
+                <td>
+                  {% if print_price.recommended_ct == 0 %}
+                    Kostenlos
+                  {% elif print_price.recommended_ct >= 100 %}
+                    {{ "%.2f"|format(print_price.recommended_ct / 100) }} €
+                  {% else %}
+                    {{ print_price.recommended_ct }} ct
+                  {% endif %}
+                </td>
+              </tr>
+            </table>
+            <p class="hint">
+              Modus: {% if subject.print_mode == '2up_duplex' %}2-auf-1, doppelseitig{% else %}doppelseitig{% endif %}
+            </p>
+          </section>
+          {% endif %}
+
           {% if can_admin %}
           <section class="panel">
             <h2>Drive-Sync</h2>
@@ -231,6 +274,13 @@
                 Fixierte Deckblatt-Seiten
                 <input type="number" name="deckblatt_pages" value="{{ subject.deckblatt_pages or 0 }}" min="0" max="20" style="width:5rem;">
                 <small>Neue PDFs werden nach diesen Seiten eingefügt (z. B. 2 für mündliche Protokolle)</small>
+              </label>
+              <label>
+                Druckmodus
+                <select name="print_mode">
+                  <option value="duplex" {% if subject.print_mode != '2up_duplex' %}selected{% endif %}>Normal (1 Seite pro Blattseite, doppelseitig)</option>
+                  <option value="2up_duplex" {% if subject.print_mode == '2up_duplex' %}selected{% endif %}>2-auf-1 (2 Seiten pro Blattseite, doppelseitig)</option>
+                </select>
               </label>
               <button class="secondary" type="submit">Umbenennen</button>
             </form>

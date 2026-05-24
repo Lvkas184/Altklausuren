@@ -1,0 +1,13 @@
+[Unit]
+Description=Altklausuren daily database backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=altklausuren
+Group=altklausuren
+WorkingDirectory=/opt/altklausuren
+EnvironmentFile=/etc/altklausuren/altklausuren.env
+ExecStart=/opt/altklausuren/.venv/bin/python backup.py
+StandardOutput=journal
+StandardError=journal
