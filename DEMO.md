@@ -7,7 +7,7 @@ Diese Datei erklärt, wie du die App startest, Rollen wechselst und die wichtigs
 ## Server starten
 
 ```bash
-cd /Users/lukas184/Altklausuren/Altklausuren-1
+cd /Users/lukas184/Altklausuren/Altklausuren
 ./start.sh
 ```
 
@@ -104,7 +104,7 @@ Das ist das interaktivste Feature. Ablauf:
 ## Projektstruktur (für Claude)
 
 ```
-Altklausuren-1/          ← Git-Repo, hier liegt der Code
+Altklausuren/            ← Git-Repo, hier liegt der Code
   app.py                 ← Alle Flask-Routen
   storage.py             ← SQLite Catalog-Klasse (alle DB-Operationen)
   pdf_workflow.py        ← PDF-Generierung (Coverpage, Splitting, Proto-PDF)

@@ -159,7 +159,7 @@ mkdir -p /etc/altklausuren
 ```bash
 # Code auf den Server kopieren (vom eigenen Mac aus)
 rsync -av --exclude='.git' --exclude='__pycache__' --exclude='data/' \
-  /Users/lukas184/Altklausuren/Altklausuren-1/ root@<IP>:/opt/altklausuren/
+  /Users/lukas184/Altklausuren/Altklausuren/ root@<IP>:/opt/altklausuren/
 
 # Auf dem Server: Python-Umgebung einrichten
 su - altklausuren
