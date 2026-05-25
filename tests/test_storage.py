@@ -57,6 +57,20 @@ class StorageTest(unittest.TestCase):
             self.assertEqual(subject["submissions"][0]["id"], "sub-1")
             self.assertEqual(subject["drive_sync"]["drive_file_id"], "file-1")
 
+    def test_proto_contribution_is_unique_per_contributor(self):
+        with TemporaryDirectory() as temp:
+            catalog = Catalog(Path(temp))
+            subject = catalog.create_subject("Mathematik I")
+            proto_session = catalog.create_proto_session(subject["id"], "SoSe 2026")
+
+            first = catalog.upsert_proto_contribution(proto_session["id"], "contributor-1", "erste Fassung")
+            second = catalog.upsert_proto_contribution(proto_session["id"], "contributor-1", "zweite Fassung")
+            contributions = catalog.get_proto_contributions(proto_session["id"])
+
+            self.assertEqual(first["id"], second["id"])
+            self.assertEqual(len(contributions), 1)
+            self.assertEqual(contributions[0]["text"], "zweite Fassung")
+
 
 if __name__ == "__main__":
     unittest.main()

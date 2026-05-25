@@ -5,6 +5,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ KIND_PROTO_DEFAULT = "Gedächtnisprotokoll"
 KIND_COLLECTION_IMPORT = "Sammlungsimport"
 
 _MIGRATIONS_DONE: set[Path] = set()
+_LOCK_STATE = threading.local()
 
 
 class Catalog:
@@ -223,6 +225,31 @@ class Catalog:
             raise ValueError(f"invalid subject_id: {subject_id!r}")
         return self.data_dir / "subjects" / subject_id
 
+    @contextmanager
+    def subject_lock(self, subject_id: str) -> Iterator[None]:
+        if not _SUBJECT_ID_RE.match(subject_id):
+            raise ValueError(f"invalid subject_id: {subject_id!r}")
+        import fcntl
+
+        lock_dir = self.data_dir / "locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / f"{subject_id}.lock"
+        held_locks = getattr(_LOCK_STATE, "held_subject_locks", set())
+        lock_key = str(lock_path.resolve())
+        if lock_key in held_locks:
+            yield
+            return
+
+        with lock_path.open("w") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            held_locks.add(lock_key)
+            _LOCK_STATE.held_subject_locks = held_locks
+            try:
+                yield
+            finally:
+                held_locks.remove(lock_key)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
     def _subject_from_row(self, row: sqlite3.Row, db: sqlite3.Connection | None = None) -> dict:
         subject = dict(row)
         if db is None:
@@ -345,6 +372,22 @@ class Catalog:
                     key text primary key,
                     value text not null default ''
                 );
+                """
+            )
+            db.execute(
+                """
+                delete from proto_contributions
+                where rowid not in (
+                    select max(rowid)
+                    from proto_contributions
+                    group by session_id, contributor_token
+                )
+                """
+            )
+            db.execute(
+                """
+                create unique index if not exists proto_contributions_session_contributor_idx
+                on proto_contributions(session_id, contributor_token)
                 """
             )
             self._ensure_column(db, "drive_sync", "drive_folder_path", "text not null default ''")
@@ -484,7 +527,7 @@ class Catalog:
         subject_dir = self.subject_dir(subject_id)
         incoming_dir = subject_dir / "incoming"
         incoming_dir.mkdir(parents=True, exist_ok=True)
-        stored_path = incoming_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{filename}"
+        stored_path = incoming_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(4)}-{filename}"
         shutil.copy2(source_pdf, stored_path)
         try:
             from pypdf import PdfReader
@@ -601,12 +644,21 @@ class Catalog:
                     return None
                 contrib_id = "pc-" + secrets.token_hex(8)
                 db.execute(
-                    "insert into proto_contributions (id, session_id, contributor_token, text, created_at, updated_at) values (?,?,?,?,?,?)",
+                    """
+                    insert into proto_contributions (id, session_id, contributor_token, text, created_at, updated_at)
+                    values (?,?,?,?,?,?)
+                    on conflict(session_id, contributor_token) do update set
+                        text = excluded.text,
+                        updated_at = excluded.updated_at
+                    """,
                     (contrib_id, session_id, contributor_token, text, now, now),
                 )
             db.commit()
         with self._connect() as db:
-            row = db.execute("select * from proto_contributions where id = ?", (contrib_id,)).fetchone()
+            row = db.execute(
+                "select * from proto_contributions where session_id = ? and contributor_token = ?",
+                (session_id, contributor_token),
+            ).fetchone()
         return dict(row)
 
     def get_proto_contribution_by_id(self, contribution_id: str) -> dict | None:

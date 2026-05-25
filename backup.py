@@ -18,8 +18,9 @@ Benötigte Umgebungsvariablen:
 from __future__ import annotations
 
 import os
-import shutil
+import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def main() -> None:
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_path = backup_dir / f"altklausuren-{stamp}.sqlite3"
-    shutil.copy2(db_path, backup_path)
+    _backup_sqlite(db_path, backup_path)
     print(f"Backup erstellt: {backup_path.name} ({backup_path.stat().st_size // 1024} KB)")
 
     _rotate_local(backup_dir)
@@ -58,6 +59,12 @@ def _rotate_local(backup_dir: Path) -> None:
     for old in backups[:-KEEP_LOCAL]:
         old.unlink()
         print(f"Lokal gelöscht: {old.name}")
+
+
+def _backup_sqlite(db_path: Path, backup_path: Path) -> None:
+    with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as source:
+        with closing(sqlite3.connect(backup_path)) as target:
+            source.backup(target)
 
 
 def _upload_to_drive(backup_path: Path, folder_id: str, data_dir: Path) -> None:

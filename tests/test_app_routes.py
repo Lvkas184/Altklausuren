@@ -37,6 +37,12 @@ def _make_pdf(path: Path, pages: int) -> None:
         writer.write(output)
 
 
+def _csrf(client) -> str:
+    with client.session_transaction() as session:
+        token = session.setdefault("csrf_token", "test-csrf-token")
+    return token
+
+
 class AppRoutesTest(unittest.TestCase):
     def test_index_renders_catalog_overview(self):
         with TemporaryDirectory() as temp:
@@ -61,9 +67,10 @@ class AppRoutesTest(unittest.TestCase):
             try:
                 app_module.catalog = Catalog(Path(temp))
 
-                response = app_module.app.test_client().post(
+                client = app_module.app.test_client()
+                response = client.post(
                     "/subjects",
-                    data={"title": "Rechnungswesen", "code": "RW"},
+                    data={"title": "Rechnungswesen", "code": "RW", "csrf_token": _csrf(client)},
                     follow_redirects=True,
                 )
 
@@ -100,9 +107,10 @@ class AppRoutesTest(unittest.TestCase):
                 app_module.catalog = Catalog(Path(temp))
                 subject = app_module.catalog.create_subject("Mathematik 1", "M1")
 
-                response = app_module.app.test_client().post(
+                client = app_module.app.test_client()
+                response = client.post(
                     f"/subjects/{subject['id']}/import-collection",
-                    data={"pdf": (_pdf_bytes(2), "DRUCK_Mathe_I.pdf")},
+                    data={"pdf": (_pdf_bytes(2), "DRUCK_Mathe_I.pdf"), "csrf_token": _csrf(client)},
                     content_type="multipart/form-data",
                     follow_redirects=True,
                 )
@@ -139,7 +147,8 @@ class AppRoutesTest(unittest.TestCase):
                     },
                 )
 
-                response = app_module.app.test_client().post(
+                client = app_module.app.test_client()
+                response = client.post(
                     f"/subjects/{subject['id']}/submissions/{submission['id']}",
                     data={
                         "kind": "Gedaechtnisprotokoll",
@@ -149,6 +158,7 @@ class AppRoutesTest(unittest.TestCase):
                         "solution": "Ja",
                         "notes": "aktualisiert",
                         "sort_order": "1",
+                        "csrf_token": _csrf(client),
                     },
                     follow_redirects=True,
                 )
@@ -161,6 +171,170 @@ class AppRoutesTest(unittest.TestCase):
                 self.assertEqual(app_module.catalog.get_subject(subject["id"])["current_pages"], 3)
                 self.assertEqual(len(PdfReader(str(current)).pages), 3)
             finally:
+                app_module.catalog = original_catalog
+
+    def test_edit_submission_rejects_invalid_sort_order(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                subject_dir = app_module.catalog.subject_dir(subject["id"])
+                upload = subject_dir / "incoming" / "upload.pdf"
+                _make_pdf(upload, 1)
+                _make_pdf(subject_dir / "current.pdf", 1)
+                submission = app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Altklausur",
+                        "term": "WiSe 2024/25",
+                        "original_filename": "upload.pdf",
+                        "stored_upload": "incoming/upload.pdf",
+                        "added_pages": 1,
+                        "current_pages": 1,
+                    },
+                )
+                client = app_module.app.test_client()
+
+                response = client.post(
+                    f"/subjects/{subject['id']}/submissions/{submission['id']}",
+                    data={
+                        "kind": "Altklausur",
+                        "term": "WiSe 2024/25",
+                        "sort_order": "not-a-number",
+                        "csrf_token": _csrf(client),
+                    },
+                    follow_redirects=False,
+                )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(app_module.catalog.get_submission(subject["id"], submission["id"])["sort_order"], 1)
+            finally:
+                app_module.catalog = original_catalog
+
+    def test_edit_submission_rolls_back_when_regeneration_fails(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                subject_dir = app_module.catalog.subject_dir(subject["id"])
+                _make_pdf(subject_dir / "current.pdf", 1)
+                submission = app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Altklausur",
+                        "term": "WiSe 2024/25",
+                        "original_filename": "missing.pdf",
+                        "stored_upload": "incoming/missing.pdf",
+                        "added_pages": 1,
+                        "current_pages": 1,
+                    },
+                )
+                client = app_module.app.test_client()
+
+                response = client.post(
+                    f"/subjects/{subject['id']}/submissions/{submission['id']}",
+                    data={
+                        "kind": "Gedächtnisprotokoll",
+                        "term": "SoSe 2026",
+                        "sort_order": "1",
+                        "csrf_token": _csrf(client),
+                    },
+                    follow_redirects=False,
+                )
+                updated = app_module.catalog.get_submission(subject["id"], submission["id"])
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(updated["kind"], "Altklausur")
+                self.assertEqual(updated["term"], "WiSe 2024/25")
+            finally:
+                app_module.catalog = original_catalog
+
+    def test_delete_submission_rolls_back_when_regeneration_fails(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                subject_dir = app_module.catalog.subject_dir(subject["id"])
+                upload = subject_dir / "incoming" / "upload.pdf"
+                _make_pdf(upload, 1)
+                _make_pdf(subject_dir / "current.pdf", 1)
+                good = app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Altklausur",
+                        "term": "WiSe 2024/25",
+                        "stored_upload": "incoming/upload.pdf",
+                        "added_pages": 1,
+                        "current_pages": 1,
+                    },
+                )
+                app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Gedächtnisprotokoll",
+                        "term": "SoSe 2026",
+                        "stored_upload": "incoming/missing.pdf",
+                        "added_pages": 1,
+                        "current_pages": 2,
+                    },
+                )
+                client = app_module.app.test_client()
+
+                response = client.post(
+                    f"/subjects/{subject['id']}/submissions/{good['id']}/delete",
+                    data={"csrf_token": _csrf(client)},
+                    follow_redirects=False,
+                )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertIsNotNone(app_module.catalog.get_submission(subject["id"], good["id"]))
+            finally:
+                app_module.catalog = original_catalog
+
+    def test_release_proto_session_rolls_back_when_regeneration_fails(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            original_regenerate = app_module.regenerate_current_pdf
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                existing = app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Altklausur",
+                        "term": "WiSe 2024/25",
+                        "stored_upload": "incoming/existing.pdf",
+                        "sort_order": 7,
+                    },
+                )
+                proto_session = app_module.catalog.create_proto_session(subject["id"], "SoSe 2026")
+                app_module.catalog.save_proto_session_editor(proto_session["id"], "Aufgabe 1\n\nAufgabe 2")
+                app_module.catalog.close_proto_session(proto_session["id"])
+
+                def fail_regenerate(**_kwargs):
+                    raise app_module.PdfProcessingError("Regeneration fehlgeschlagen")
+
+                app_module.regenerate_current_pdf = fail_regenerate
+                client = app_module.app.test_client()
+
+                response = client.post(
+                    f"/subjects/{subject['id']}/sessions/{proto_session['id']}/release",
+                    data={"csrf_token": _csrf(client)},
+                    follow_redirects=False,
+                )
+                updated_subject = app_module.catalog.get_subject(subject["id"])
+                updated_session = app_module.catalog.get_proto_session_by_id(proto_session["id"])
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(updated_session["status"], "closed")
+                self.assertEqual(len(updated_subject["submissions"]), 1)
+                self.assertEqual(updated_subject["submissions"][0]["id"], existing["id"])
+                self.assertEqual(updated_subject["submissions"][0]["sort_order"], 7)
+            finally:
+                app_module.regenerate_current_pdf = original_regenerate
                 app_module.catalog = original_catalog
 
     def test_viewer_cannot_create_subject(self):
@@ -186,7 +360,7 @@ class AppRoutesTest(unittest.TestCase):
 
                 response = client.post(
                     "/subjects",
-                    data={"title": "Rechnungswesen", "code": "RW"},
+                    data={"title": "Rechnungswesen", "code": "RW", "csrf_token": _csrf(client)},
                     follow_redirects=False,
                 )
 

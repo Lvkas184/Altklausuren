@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from pypdf import PdfReader, PdfWriter
 
-from drive_sync import CONFLICT, DRIVE_NEW, SYNCED, poll_drive_changes, push_subject_to_drive, sync_drive_folder
+from drive_sync import CONFLICT, DRIVE_NEW, ERROR, SYNCED, poll_drive_changes, push_subject_to_drive, sync_drive_folder, sync_local_folder
 from drive_sync import select_print_collections
 from drive_sync import _subject_title
 from storage import Catalog
@@ -167,6 +167,18 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(subject["drive_sync"]["sync_status"], SYNCED)
             self.assertTrue((data_dir / "subjects" / "mathematik-i" / "current.pdf").exists())
 
+    def test_api_sync_preserves_existing_drive_config_values(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp)
+            (data_dir / "drive_config.json").write_text('{"local_root_path": "/drive/local"}', encoding="utf-8")
+            client = FakeDriveClient()
+
+            sync_drive_folder(data_dir=data_dir, root_url="folder-1", client=client)
+
+            config = (data_dir / "drive_config.json").read_text(encoding="utf-8")
+            self.assertIn('"local_root_path": "/drive/local"', config)
+            self.assertIn('"root_url": "folder-1"', config)
+
     def test_initial_import_accepts_druck_inside_filename(self):
         with TemporaryDirectory() as temp:
             data_dir = Path(temp)
@@ -231,6 +243,31 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(updated["drive_sync"]["sync_status"], CONFLICT)
             self.assertEqual(client.uploaded, [])
 
+    def test_push_without_known_drive_baseline_does_not_overwrite(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp)
+            catalog = Catalog(data_dir)
+            subject = catalog.create_subject("Mathematik I")
+            _make_pdf(catalog.subject_dir(subject["id"]) / "current.pdf", 1)
+            catalog.update_drive_sync(
+                subject["id"],
+                {
+                    "drive_file_id": "file-1",
+                    "drive_folder_id": "folder-1",
+                    "drive_filename": "DRUCK_Mathe_I.pdf",
+                    "sync_status": SYNCED,
+                },
+            )
+            client = FakeDriveClient()
+
+            result = push_subject_to_drive(data_dir=data_dir, subject_id=subject["id"], client=client)
+            updated = Catalog(data_dir).get_subject(subject["id"])
+
+            self.assertFalse(result["pushed"])
+            self.assertEqual(result["status"], CONFLICT)
+            self.assertEqual(updated["drive_sync"]["sync_status"], CONFLICT)
+            self.assertEqual(client.uploaded, [])
+
     def test_poll_imports_remote_change(self):
         with TemporaryDirectory() as temp:
             data_dir = Path(temp)
@@ -258,6 +295,49 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(result["imported"], 1)
             self.assertEqual(updated["drive_sync"]["sync_status"], DRIVE_NEW)
             self.assertEqual(len(PdfReader(str(current)).pages), 2)
+
+    def test_poll_does_not_overwrite_local_error_state(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp)
+            catalog = Catalog(data_dir)
+            subject = catalog.create_subject("Mathematik I")
+            current = catalog.subject_dir(subject["id"]) / "current.pdf"
+            _make_pdf(current, 3)
+            catalog.update_drive_sync(
+                subject["id"],
+                {
+                    "drive_file_id": "file-1",
+                    "drive_folder_id": "folder-1",
+                    "drive_filename": "DRUCK_Mathe_I.pdf",
+                    "last_drive_fingerprint": "old",
+                    "sync_status": ERROR,
+                },
+                current_pages=3,
+            )
+            client = FakeDriveClient()
+            client.metadata["file-1"]["md5Checksum"] = "remote-new"
+            client.download_pages = 1
+
+            result = poll_drive_changes(data_dir=data_dir, client=client)
+            updated = Catalog(data_dir).get_subject(subject["id"])
+
+            self.assertEqual(result["conflicts"], 1)
+            self.assertEqual(updated["drive_sync"]["sync_status"], CONFLICT)
+            self.assertEqual(len(PdfReader(str(current)).pages), 3)
+
+    def test_local_sync_skips_unchanged_files(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp) / "data"
+            root = Path(temp) / "drive"
+            source = root / "Mathematik I" / "DRUCK_Mathe_I.pdf"
+            _make_pdf(source, 1)
+
+            first = sync_local_folder(data_dir=data_dir, root_path=str(root))
+            second = sync_local_folder(data_dir=data_dir, root_path=str(root))
+
+            self.assertEqual(first["imported"], 1)
+            self.assertEqual(second["imported"], 0)
+            self.assertEqual(second["skipped"], 1)
 
 
 if __name__ == "__main__":

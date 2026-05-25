@@ -226,10 +226,6 @@
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="danger" type="submit">App-Version hochladen</button>
                 </form>
-                <form action="{{ url_for('dismiss_subject_drive_conflict', subject_id=subject.id) }}" method="post">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="secondary" type="submit">Konflikt verwerfen</button>
-                </form>
               </div>
               <div class="divider"></div>
               <h3>Drive neu verknüpfen</h3>

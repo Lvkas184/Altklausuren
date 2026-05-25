@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import re
+import secrets
 import shutil
 import sys
 import zipfile
@@ -149,6 +150,10 @@ def rotate_archive(archive_dir: Path, keep: int = 5) -> None:
         old.unlink(missing_ok=True)
 
 
+def _current_archive_name() -> str:
+    return f"current-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(4)}.pdf"
+
+
 def append_submission(
     *,
     subject: dict,
@@ -179,21 +184,23 @@ def append_submission(
 
     entries = list(subject.get("submissions", []))
     entries.append(metadata)
-    cover_pdf = _build_cover(subject, entries)
-    cover_reader = PdfReader(cover_pdf)
-    writer.add_page(cover_reader.pages[0])
+    if not subject.get("no_cover"):
+        cover_pdf = _build_cover(subject, entries)
+        cover_reader = PdfReader(cover_pdf)
+        writer.add_page(cover_reader.pages[0])
 
     current_reader = None
     if current_path.exists():
-        backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+        backup_path = archive_dir / _current_archive_name()
         shutil.copy2(current_path, backup_path)
         rotate_archive(archive_dir)
         try:
             current_reader = PdfReader(str(current_path))
         except Exception as exc:
             raise PdfProcessingError("Die bestehende Sammlung konnte nicht als PDF gelesen werden.") from exc
-        # Keep Deckblatt pages pinned before the new upload
-        for page in current_reader.pages[1:1 + deckblatt_pages]:
+        # Keep configured legacy cover pages pinned before the new upload.
+        pinned_start = 0 if subject.get("no_cover") else 1
+        for page in current_reader.pages[pinned_start:pinned_start + deckblatt_pages]:
             writer.add_page(page)
 
     added_pages = 0
@@ -202,7 +209,8 @@ def append_submission(
         added_pages += 1
 
     if current_reader is not None:
-        for page in current_reader.pages[1 + deckblatt_pages:]:
+        existing_start = deckblatt_pages if subject.get("no_cover") else 1 + deckblatt_pages
+        for page in current_reader.pages[existing_start:]:
             writer.add_page(page)
             existing_body_pages += 1
 
@@ -233,7 +241,7 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
     )
 
     if current_path.exists():
-        backup_path = archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+        backup_path = archive_dir / _current_archive_name()
         shutil.copy2(current_path, backup_path)
         rotate_archive(archive_dir)
 
@@ -397,7 +405,7 @@ def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[d
     headers = ["Pr\u00fcfungsdatum", "Dozent", "L\u00f6sung"]
     widths = [61 * mm, 64 * mm, 29 * mm]
     normal_row_height = 7.55 * mm
-    min_row_height = 4.5 * mm
+    min_row_height = 2.8 * mm
 
     n_entries = len(entries)
     # Minimum visual rows even when few entries; expand to fit all entries
@@ -407,10 +415,8 @@ def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[d
         needed = visual_rows + 1  # data rows + header
         ideal_row_height = available_height / needed
         if ideal_row_height < min_row_height:
-            # Too many entries to fit at min height; cap how many we show
+            # Keep every entry on the single cover page, even if this gets dense.
             row_height = min_row_height
-            max_data = int(available_height / row_height) - 1
-            visual_rows = min(visual_rows, max(13, max_data))
         else:
             row_height = min(normal_row_height, ideal_row_height)
     else:
@@ -424,6 +430,12 @@ def _draw_exam_table(pdf: canvas.Canvas, x: float, y_top: float, entries: list[d
     if row_height < 5.5 * mm:
         font_size = 7
         header_font_size = 10
+    if row_height < 4.5 * mm:
+        font_size = 5
+        header_font_size = 8
+    if row_height < 3.4 * mm:
+        font_size = 4
+        header_font_size = 6
 
     rows = visual_rows
     table_width = sum(widths)
@@ -575,7 +587,7 @@ def split_collection(
         for page_num in range(start - 1, end):
             writer.add_page(reader.pages[page_num])
 
-        filename = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-split-{i + 1:02d}.pdf"
+        filename = f"{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(4)}-split-{i + 1:02d}.pdf"
         out_path = incoming_dir / filename
         with out_path.open("wb") as f:
             writer.write(f)

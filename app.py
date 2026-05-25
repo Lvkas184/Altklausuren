@@ -199,6 +199,10 @@ def _print_price(pages: int, print_mode: str, paper_ct: float, toner_ct: float) 
     }
 
 
+def _unique_upload_name(filename: str) -> str:
+    return f"{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(4)}-{filename}"
+
+
 @app.context_processor
 def inject_permissions():
     role = active_role()
@@ -476,7 +480,7 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
     uploaded = request.files.get("pdf")
     redirect_target = url_for("subject_detail", subject_id=subject_id) if detail_redirect and subject_id else url_for("index")
 
-    if not subject_id or not catalog.get_subject(subject_id):
+    if not subject_id:
         flash("Bitte wähle ein Fach aus.", "error")
         return redirect(redirect_target)
 
@@ -488,50 +492,56 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
         flash("Es können aktuell nur PDF-Dateien verarbeitet werden.", "error")
         return redirect(redirect_target)
 
-    subject_dir = catalog.subject_dir(subject_id)
-    incoming_dir = subject_dir / "incoming"
-    incoming_dir.mkdir(parents=True, exist_ok=True)
-    source_name = secure_filename(uploaded.filename) or "upload.pdf"
-    upload_path = incoming_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{source_name}"
-    uploaded.save(upload_path)
+    with catalog.subject_lock(subject_id):
+        subject = catalog.get_subject(subject_id)
+        if not subject:
+            flash("Bitte wähle ein Fach aus.", "error")
+            return redirect(redirect_target)
 
-    metadata = {
-        "kind": request.form.get("kind", KIND_PROTO_DEFAULT).strip() or KIND_PROTO_DEFAULT,
-        "term": request.form.get("term", "").strip(),
-        "exam_date": request.form.get("exam_date", "").strip(),
-        "instructor": request.form.get("instructor", "").strip(),
-        "solution": request.form.get("solution", "").strip(),
-        "notes": request.form.get("notes", "").strip(),
-        "original_filename": source_name,
-    }
-    strip_uploaded_cover = request.form.get("strip_uploaded_cover") == "on"
+        subject_dir = catalog.subject_dir(subject_id)
+        incoming_dir = subject_dir / "incoming"
+        incoming_dir.mkdir(parents=True, exist_ok=True)
+        source_name = secure_filename(uploaded.filename) or "upload.pdf"
+        upload_path = incoming_dir / _unique_upload_name(source_name)
+        uploaded.save(upload_path)
 
-    try:
-        result = append_submission(
-            subject=catalog.get_subject(subject_id),
-            subject_dir=subject_dir,
-            upload_path=upload_path,
-            metadata=metadata,
-            strip_uploaded_cover=strip_uploaded_cover,
+        metadata = {
+            "kind": request.form.get("kind", KIND_PROTO_DEFAULT).strip() or KIND_PROTO_DEFAULT,
+            "term": request.form.get("term", "").strip(),
+            "exam_date": request.form.get("exam_date", "").strip(),
+            "instructor": request.form.get("instructor", "").strip(),
+            "solution": request.form.get("solution", "").strip(),
+            "notes": request.form.get("notes", "").strip(),
+            "original_filename": source_name,
+        }
+        strip_uploaded_cover = request.form.get("strip_uploaded_cover") == "on"
+
+        try:
+            result = append_submission(
+                subject=subject,
+                subject_dir=subject_dir,
+                upload_path=upload_path,
+                metadata=metadata,
+                strip_uploaded_cover=strip_uploaded_cover,
+            )
+        except PdfProcessingError as exc:
+            flash(str(exc), "error")
+            return redirect(redirect_target)
+
+        catalog.add_submission(
+            subject_id,
+            metadata
+            | result
+            | {
+                "strip_uploaded_cover": strip_uploaded_cover,
+                "collection_import": False,
+            },
         )
-    except PdfProcessingError as exc:
-        flash(str(exc), "error")
-        return redirect(redirect_target)
-
-    catalog.add_submission(
-        subject_id,
-        metadata
-        | result
-        | {
-            "strip_uploaded_cover": strip_uploaded_cover,
-            "collection_import": False,
-        },
-    )
-    try:
-        push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, catalog=catalog)
-    except DriveSetupError as exc:
-        flash(f"PDF wurde lokal erzeugt, aber Drive konnte nicht aktualisiert werden: {exc}", "error")
-        return redirect(redirect_target)
+        try:
+            push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, catalog=catalog)
+        except DriveSetupError as exc:
+            flash(f"PDF wurde lokal erzeugt, aber Drive konnte nicht aktualisiert werden: {exc}", "error")
+            return redirect(redirect_target)
 
     if push_result["status"] == UNMAPPED:
         flash("PDF wurde lokal erzeugt. Dieses Fach ist noch keiner Drive-Datei zugeordnet.", "error")
@@ -547,40 +557,68 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
 @app.post("/subjects/<subject_id>/submissions/<submission_id>")
 @require_role("editor")
 def update_subject_submission(subject_id: str, submission_id: str):
-    if not catalog.get_submission(subject_id, submission_id):
-        abort(404)
-    catalog.update_submission(
-        subject_id,
-        submission_id,
-        {
-            "kind": request.form.get("kind", "").strip(),
-            "term": request.form.get("term", "").strip(),
-            "exam_date": request.form.get("exam_date", "").strip(),
-            "instructor": request.form.get("instructor", "").strip(),
-            "solution": request.form.get("solution", "").strip(),
-            "notes": request.form.get("notes", "").strip(),
-            "sort_order": int(request.form.get("sort_order", "0") or 0),
-        },
-    )
-    return _regenerate_and_push(subject_id, "Deckblattdaten wurden gespeichert.")
+    try:
+        sort_order = int(request.form.get("sort_order", "0") or 0)
+    except ValueError:
+        flash("Sortierung muss eine Zahl sein.", "error")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
+    with catalog.subject_lock(subject_id):
+        old_submission = catalog.get_submission(subject_id, submission_id)
+        if not old_submission:
+            abort(404)
+        catalog.update_submission(
+            subject_id,
+            submission_id,
+            {
+                "kind": request.form.get("kind", "").strip(),
+                "term": request.form.get("term", "").strip(),
+                "exam_date": request.form.get("exam_date", "").strip(),
+                "instructor": request.form.get("instructor", "").strip(),
+                "solution": request.form.get("solution", "").strip(),
+                "notes": request.form.get("notes", "").strip(),
+                "sort_order": sort_order,
+            },
+        )
+        return _regenerate_and_push(
+            subject_id,
+            "Deckblattdaten wurden gespeichert.",
+            rollback=lambda: catalog.update_submission(
+                subject_id,
+                submission_id,
+                {
+                    "kind": old_submission.get("kind", ""),
+                    "term": old_submission.get("term", ""),
+                    "exam_date": old_submission.get("exam_date", ""),
+                    "instructor": old_submission.get("instructor", ""),
+                    "solution": old_submission.get("solution", ""),
+                    "notes": old_submission.get("notes", ""),
+                    "sort_order": old_submission.get("sort_order", 0),
+                },
+            ),
+            lock=False,
+        )
 
 
 @app.post("/subjects/<subject_id>/submissions/<submission_id>/delete")
 @require_role("editor")
 def delete_subject_submission(subject_id: str, submission_id: str):
-    if not catalog.get_submission(subject_id, submission_id):
-        abort(404)
-    catalog.delete_submission(subject_id, submission_id)
-    return _regenerate_and_push(subject_id, "Eintrag wurde gelöscht.")
+    with catalog.subject_lock(subject_id):
+        old_submission = catalog.get_submission(subject_id, submission_id)
+        if not old_submission:
+            abort(404)
+        catalog.delete_submission(subject_id, submission_id)
+        return _regenerate_and_push(
+            subject_id,
+            "Eintrag wurde gelöscht.",
+            rollback=lambda: catalog.add_submission(subject_id, old_submission),
+            lock=False,
+        )
 
 
 @app.post("/subjects/<subject_id>/import-collection")
 @require_role("admin")
 def import_subject_collection(subject_id: str):
-    subject = catalog.get_subject(subject_id)
     uploaded = request.files.get("pdf")
-    if not subject:
-        abort(404)
     if not uploaded or not uploaded.filename:
         flash("Bitte wähle eine bestehende DRUCK-PDF aus.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
@@ -588,62 +626,70 @@ def import_subject_collection(subject_id: str):
         flash("Es können aktuell nur PDF-Dateien importiert werden.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
 
-    subject_dir = catalog.subject_dir(subject_id)
-    incoming_dir = subject_dir / "incoming"
-    incoming_dir.mkdir(parents=True, exist_ok=True)
-    source_name = secure_filename(uploaded.filename) or "druck-import.pdf"
-    upload_path = incoming_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{source_name}"
-    uploaded.save(upload_path)
+    with catalog.subject_lock(subject_id):
+        subject = catalog.get_subject(subject_id)
+        if not subject:
+            abort(404)
 
-    try:
-        pages = len(PdfReader(str(upload_path)).pages)
-    except Exception:
-        flash("Die importierte Datei konnte nicht als PDF gelesen werden.", "error")
-        return redirect(url_for("subject_detail", subject_id=subject_id))
-    if pages == 0:
-        flash("Die importierte PDF enthält keine Seiten.", "error")
-        return redirect(url_for("subject_detail", subject_id=subject_id))
+        subject_dir = catalog.subject_dir(subject_id)
+        incoming_dir = subject_dir / "incoming"
+        incoming_dir.mkdir(parents=True, exist_ok=True)
+        source_name = secure_filename(uploaded.filename) or "druck-import.pdf"
+        upload_path = incoming_dir / _unique_upload_name(source_name)
+        uploaded.save(upload_path)
 
-    current_path = subject_dir / "current.pdf"
-    archive_dir = subject_dir / "archive"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    if current_path.exists():
-        shutil.copy2(current_path, archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
-        rotate_archive(archive_dir)
-    shutil.copy2(upload_path, current_path)
+        try:
+            pages = len(PdfReader(str(upload_path)).pages)
+        except Exception:
+            flash("Die importierte Datei konnte nicht als PDF gelesen werden.", "error")
+            return redirect(url_for("subject_detail", subject_id=subject_id))
+        if pages == 0:
+            flash("Die importierte PDF enthält keine Seiten.", "error")
+            return redirect(url_for("subject_detail", subject_id=subject_id))
 
-    catalog.add_submission(
-        subject_id,
-        {
-            "kind": KIND_COLLECTION_IMPORT,
-            "term": request.form.get("term", "").strip(),
-            "exam_date": request.form.get("exam_date", "").strip(),
-            "instructor": request.form.get("instructor", "").strip(),
-            "solution": request.form.get("solution", "").strip(),
-            "notes": request.form.get("notes", "Bestehende Sammlung importiert.").strip(),
-            "original_filename": source_name,
-            "stored_upload": str(upload_path.relative_to(subject_dir)),
-            "added_pages": pages,
-            "existing_body_pages": 0,
-            "current_pages": pages,
-            "export_path": "",
-            "strip_uploaded_cover": False,
-            "collection_import": True,
-        },
-    )
+        current_path = subject_dir / "current.pdf"
+        archive_dir = subject_dir / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        if current_path.exists():
+            shutil.copy2(
+                current_path,
+                archive_dir / f"current-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(4)}.pdf",
+            )
+            rotate_archive(archive_dir)
+        shutil.copy2(upload_path, current_path)
 
-    drive_file_id = request.form.get("drive_file_id", "").strip()
-    if drive_file_id:
-        catalog.update_drive_sync(
+        catalog.add_submission(
             subject_id,
             {
-                "drive_file_id": drive_file_id,
-                "drive_folder_id": request.form.get("drive_folder_id", "").strip(),
-                "drive_filename": request.form.get("drive_filename", source_name).strip(),
-                "sync_status": SYNCED,
+                "kind": KIND_COLLECTION_IMPORT,
+                "term": request.form.get("term", "").strip(),
+                "exam_date": request.form.get("exam_date", "").strip(),
+                "instructor": request.form.get("instructor", "").strip(),
+                "solution": request.form.get("solution", "").strip(),
+                "notes": request.form.get("notes", "Bestehende Sammlung importiert.").strip(),
+                "original_filename": source_name,
+                "stored_upload": str(upload_path.relative_to(subject_dir)),
+                "added_pages": pages,
+                "existing_body_pages": 0,
+                "current_pages": pages,
+                "export_path": "",
+                "strip_uploaded_cover": False,
+                "collection_import": True,
             },
-            current_pages=pages,
         )
+
+        drive_file_id = request.form.get("drive_file_id", "").strip()
+        if drive_file_id:
+            catalog.update_drive_sync(
+                subject_id,
+                {
+                    "drive_file_id": drive_file_id,
+                    "drive_folder_id": request.form.get("drive_folder_id", "").strip(),
+                    "drive_filename": request.form.get("drive_filename", source_name).strip(),
+                    "sync_status": SYNCED,
+                },
+                current_pages=pages,
+            )
 
     flash("Bestehende DRUCK-Sammlung wurde vollständig importiert.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
@@ -655,13 +701,19 @@ def regenerate_subject(subject_id: str):
     return _regenerate_and_push(subject_id, "PDF wurde neu erzeugt.")
 
 
-def _regenerate_and_push(subject_id: str, success_message: str):
+def _regenerate_and_push(subject_id: str, success_message: str, rollback=None, *, lock: bool = True):
+    if lock:
+        with catalog.subject_lock(subject_id):
+            return _regenerate_and_push(subject_id, success_message, rollback=rollback, lock=False)
+
     subject = catalog.get_subject(subject_id)
     if not subject:
         abort(404)
     try:
         result = regenerate_current_pdf(subject=subject, subject_dir=catalog.subject_dir(subject_id))
     except PdfProcessingError as exc:
+        if rollback:
+            rollback()
         flash(str(exc), "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
 
@@ -841,25 +893,6 @@ def check_subject_drive_version(subject_id: str):
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
-@app.post("/subjects/<subject_id>/drive/dismiss-conflict")
-@require_role("admin")
-def dismiss_subject_drive_conflict(subject_id: str):
-    if not catalog.get_subject(subject_id):
-        abort(404)
-    catalog.update_drive_sync(
-        subject_id,
-        {
-            "sync_status": SYNCED,
-            "last_sync_error": "",
-            "remote_drive_fingerprint": "",
-            "remote_drive_modified_time": "",
-            "remote_drive_md5": "",
-        },
-    )
-    flash("Konfliktstatus wurde verworfen. Beim nächsten Sync wird Drive erneut geprüft.", "success")
-    return redirect(url_for("subject_detail", subject_id=subject_id))
-
-
 @app.get("/subjects/<subject_id>/submissions/<submission_id>/split")
 @require_role("editor")
 def split_collection_view(subject_id: str, submission_id: str):
@@ -902,11 +935,6 @@ def split_collection_view(subject_id: str, submission_id: str):
 @app.post("/subjects/<subject_id>/submissions/<submission_id>/split")
 @require_role("editor")
 def split_collection_execute(subject_id: str, submission_id: str):
-    subject = catalog.get_subject(subject_id)
-    submission = catalog.get_submission(subject_id, submission_id)
-    if not subject or not submission:
-        abort(404)
-
     indices = sorted({
         int(k.split("_")[2])
         for k in request.form
@@ -936,38 +964,45 @@ def split_collection_execute(subject_id: str, submission_id: str):
         flash("Keine Gruppen definiert.", "error")
         return redirect(url_for("split_collection_view", subject_id=subject_id, submission_id=submission_id))
 
-    subject_dir = catalog.subject_dir(subject_id)
-    try:
-        new_submissions = split_collection(
-            subject=subject,
-            subject_dir=subject_dir,
-            source_submission=submission,
-            groups=groups,
-        )
-    except PdfProcessingError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("split_collection_view", subject_id=subject_id, submission_id=submission_id))
+    with catalog.subject_lock(subject_id):
+        subject = catalog.get_subject(subject_id)
+        submission = catalog.get_submission(subject_id, submission_id)
+        if not subject or not submission:
+            abort(404)
 
-    catalog.delete_submission(subject_id, submission_id)
-    for sub in new_submissions:
-        catalog.add_submission(subject_id, sub)
+        subject_dir = catalog.subject_dir(subject_id)
+        try:
+            new_submissions = split_collection(
+                subject=subject,
+                subject_dir=subject_dir,
+                source_submission=submission,
+                groups=groups,
+            )
+        except PdfProcessingError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("split_collection_view", subject_id=subject_id, submission_id=submission_id))
 
-    return _regenerate_and_push(subject_id, f"Sammlung in {len(new_submissions)} Einträge aufgeteilt.")
+        catalog.delete_submission(subject_id, submission_id)
+        for sub in new_submissions:
+            catalog.add_submission(subject_id, sub)
+
+        return _regenerate_and_push(subject_id, f"Sammlung in {len(new_submissions)} Einträge aufgeteilt.", lock=False)
 
 
 @app.post("/subjects/<subject_id>/delete")
 @require_role("editor")
 def delete_subject(subject_id: str):
-    subject = catalog.get_subject(subject_id)
-    if not subject:
-        abort(404)
-    catalog.delete_subject(subject_id)
-    subject_dir = catalog.subject_dir(subject_id)
-    if subject_dir.exists():
-        removed_dir = subject_dir.parent / "_removed"
-        removed_dir.mkdir(parents=True, exist_ok=True)
-        target = removed_dir / f"{subject_id}-{int(time.time())}"
-        shutil.move(str(subject_dir), str(target))
+    with catalog.subject_lock(subject_id):
+        subject = catalog.get_subject(subject_id)
+        if not subject:
+            abort(404)
+        catalog.delete_subject(subject_id)
+        subject_dir = catalog.subject_dir(subject_id)
+        if subject_dir.exists():
+            removed_dir = subject_dir.parent / "_removed"
+            removed_dir.mkdir(parents=True, exist_ok=True)
+            target = removed_dir / f"{subject_id}-{int(time.time())}"
+            shutil.move(str(subject_dir), str(target))
     flash(f"Fach \"{subject['title']}\" wurde gelöscht.", "success")
     return redirect(url_for("index"))
 
@@ -975,8 +1010,6 @@ def delete_subject(subject_id: str):
 @app.post("/subjects/<subject_id>/update")
 @require_role("editor")
 def update_subject(subject_id: str):
-    if not catalog.get_subject(subject_id):
-        abort(404)
     title = request.form.get("title", "").strip()
     code = request.form.get("code", "").strip()
     if not title:
@@ -988,7 +1021,10 @@ def update_subject(subject_id: str):
     except ValueError:
         deckblatt_pages = 0
     print_mode = request.form.get("print_mode", "duplex")
-    catalog.update_subject(subject_id, title=title, code=code, no_cover=no_cover, deckblatt_pages=deckblatt_pages, print_mode=print_mode)
+    with catalog.subject_lock(subject_id):
+        if not catalog.get_subject(subject_id):
+            abort(404)
+        catalog.update_subject(subject_id, title=title, code=code, no_cover=no_cover, deckblatt_pages=deckblatt_pages, print_mode=print_mode)
     flash("Fach wurde umbenannt.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
@@ -1319,40 +1355,58 @@ def preview_proto_session_pdf(subject_id: str, session_id: str):
 @require_role("editor")
 def release_proto_session(subject_id: str, session_id: str):
     from pdf_workflow import generate_proto_pdf
-    proto_sess = catalog.get_proto_session_by_id(session_id)
-    if not proto_sess or proto_sess["subject_id"] != subject_id:
-        abort(404)
-    if proto_sess["status"] != "closed":
-        msg = "Session wurde bereits freigegeben." if proto_sess["status"] == "released" else "Nur geschlossene Sessions können freigegeben werden."
-        flash(msg, "error")
-        return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
-    subject = catalog.get_subject(subject_id)
-    subject_dir = catalog.subject_dir(subject_id)
-    incoming_dir = subject_dir / "incoming"
-    incoming_dir.mkdir(parents=True, exist_ok=True)
-    from datetime import datetime as _dt
-    filename = f"{_dt.now().strftime('%Y%m%d-%H%M%S')}-protokoll.pdf"
-    out_path = incoming_dir / filename
-    generate_proto_pdf(content=proto_sess["editor_content"], subject=subject, session=proto_sess, out_path=out_path)
-    metadata = {
-        "kind": KIND_PROTO_DEFAULT,
-        "term": proto_sess["semester"],
-        "exam_date": "",
-        "instructor": "",
-        "solution": "unbekannt",
-        "notes": "",
-        "original_filename": filename,
-        "stored_upload": str(out_path.relative_to(subject_dir)),
-        "added_pages": 0,
-        "existing_body_pages": 0,
-        "current_pages": 0,
-        "export_path": "",
-        "strip_uploaded_cover": False,
-        "collection_import": False,
-    }
-    catalog.add_submission(subject_id, metadata)
-    catalog.release_proto_session(session_id)
-    return _regenerate_and_push(subject_id, f"Protokoll freigegeben und zur Sammlung hinzugefügt.")
+    with catalog.subject_lock(subject_id):
+        proto_sess = catalog.get_proto_session_by_id(session_id)
+        if not proto_sess or proto_sess["subject_id"] != subject_id:
+            abort(404)
+        if proto_sess["status"] != "closed":
+            msg = "Session wurde bereits freigegeben." if proto_sess["status"] == "released" else "Nur geschlossene Sessions können freigegeben werden."
+            flash(msg, "error")
+            return redirect(url_for("proto_session_moderation", subject_id=subject_id, session_id=session_id))
+        subject = catalog.get_subject(subject_id)
+        subject_dir = catalog.subject_dir(subject_id)
+        incoming_dir = subject_dir / "incoming"
+        incoming_dir.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime as _dt
+        filename = f"{_dt.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(4)}-protokoll.pdf"
+        out_path = incoming_dir / filename
+        generate_proto_pdf(content=proto_sess["editor_content"], subject=subject, session=proto_sess, out_path=out_path)
+        old_submission_order = {
+            submission["id"]: submission.get("sort_order", 0)
+            for submission in subject.get("submissions", [])
+        }
+        metadata = {
+            "kind": KIND_PROTO_DEFAULT,
+            "term": proto_sess["semester"],
+            "exam_date": "",
+            "instructor": "",
+            "solution": "unbekannt",
+            "notes": "",
+            "original_filename": filename,
+            "stored_upload": str(out_path.relative_to(subject_dir)),
+            "added_pages": 0,
+            "existing_body_pages": 0,
+            "current_pages": 0,
+            "export_path": "",
+            "strip_uploaded_cover": False,
+            "collection_import": False,
+        }
+        added_submission = catalog.add_submission(subject_id, metadata)
+        catalog.release_proto_session(session_id)
+
+        def rollback_release():
+            catalog.delete_submission(subject_id, added_submission["id"])
+            for existing_id, sort_order in old_submission_order.items():
+                catalog.update_submission(subject_id, existing_id, {"sort_order": sort_order})
+            catalog.close_proto_session(session_id)
+            out_path.unlink(missing_ok=True)
+
+        return _regenerate_and_push(
+            subject_id,
+            f"Protokoll freigegeben und zur Sammlung hinzugefügt.",
+            rollback=rollback_release,
+            lock=False,
+        )
 
 
 

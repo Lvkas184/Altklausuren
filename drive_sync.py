@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -46,11 +47,39 @@ def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | No
     for file in files:
         subject_title = _subject_title(file, root_url)
         subject = catalog.find_or_create_subject(title=subject_title, code="")
-        fingerprint = _drive_fingerprint(file)
+        with catalog.subject_lock(subject["id"]):
+            subject = catalog.get_subject(subject["id"]) or subject
+            fingerprint = _drive_fingerprint(file)
 
-        existing_sync = subject.get("drive_sync") or subject.get("drive", {})
-        if existing_sync.get("last_drive_fingerprint") == fingerprint or existing_sync.get("fingerprint") == fingerprint:
-            catalog.update_drive_sync(
+            existing_sync = subject.get("drive_sync") or subject.get("drive", {})
+            if existing_sync.get("last_drive_fingerprint") == fingerprint or existing_sync.get("fingerprint") == fingerprint:
+                catalog.update_drive_sync(
+                    subject["id"],
+                    {
+                        "file_id": file["id"],
+                        "name": file["name"],
+                        "folder_path": file["folder_path"],
+                        "folder_id": _first_parent(file),
+                        "web_view_link": file.get("webViewLink", ""),
+                        "modified_time": file.get("modifiedTime", ""),
+                        "md5_checksum": file.get("md5Checksum", ""),
+                        "fingerprint": fingerprint,
+                        "synced_at": existing_sync.get("last_synced_at") or sync_started_at,
+                        "sync_status": existing_sync.get("sync_status") or SYNCED,
+                    },
+                )
+                skipped += 1
+                continue
+
+            cache_path = cache_dir / f"{file['id']}.pdf"
+            client.download_file(file["id"], cache_path)
+
+            subject_dir = catalog.subject_dir(subject["id"])
+            current_path = subject_dir / "current.pdf"
+            current_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cache_path, current_path)
+
+            catalog.update_drive_subject(
                 subject["id"],
                 {
                     "file_id": file["id"],
@@ -59,54 +88,29 @@ def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | No
                     "folder_id": _first_parent(file),
                     "web_view_link": file.get("webViewLink", ""),
                     "modified_time": file.get("modifiedTime", ""),
+                    "size": file.get("size", ""),
                     "md5_checksum": file.get("md5Checksum", ""),
                     "fingerprint": fingerprint,
-                    "synced_at": existing_sync.get("last_synced_at") or sync_started_at,
-                    "sync_status": existing_sync.get("sync_status") or SYNCED,
+                    "synced_at": sync_started_at,
+                    "sync_status": SYNCED,
+                    "cache_path": str(cache_path.relative_to(data_dir)),
                 },
+                current_pages=_page_count(current_path),
             )
-            skipped += 1
-            continue
+            catalog.add_collection_import_if_missing(subject["id"], current_path, file["name"])
+            imported += 1
 
-        cache_path = cache_dir / f"{file['id']}.pdf"
-        client.download_file(file["id"], cache_path)
-
-        subject_dir = catalog.subject_dir(subject["id"])
-        current_path = subject_dir / "current.pdf"
-        current_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cache_path, current_path)
-
-        catalog.update_drive_subject(
-            subject["id"],
-            {
-                "file_id": file["id"],
-                "name": file["name"],
-                "folder_path": file["folder_path"],
-                "folder_id": _first_parent(file),
-                "web_view_link": file.get("webViewLink", ""),
-                "modified_time": file.get("modifiedTime", ""),
-                "size": file.get("size", ""),
-                "md5_checksum": file.get("md5Checksum", ""),
-                "fingerprint": fingerprint,
-                "synced_at": sync_started_at,
-                "sync_status": SYNCED,
-                "cache_path": str(cache_path.relative_to(data_dir)),
-            },
-            current_pages=_page_count(current_path),
-        )
-        catalog.add_collection_import_if_missing(subject["id"], current_path, file["name"])
-        imported += 1
-
-    save_drive_config(
-        data_dir,
+    config = load_drive_config(data_dir)
+    config.update(
         {
             "root_url": root_url,
             "root_id": extract_drive_id(root_url),
             "last_sync_at": sync_started_at,
             "last_file_count": len(files),
             "last_source_file_count": len(source_files),
-        },
+        }
     )
+    save_drive_config(data_dir, config)
 
     return {
         "found": len(files),
@@ -127,6 +131,24 @@ def push_subject_to_drive(
 ) -> dict:
     if catalog is None:
         catalog = Catalog(data_dir)
+    with catalog.subject_lock(subject_id):
+        return _push_subject_to_drive_locked(
+            data_dir=data_dir,
+            subject_id=subject_id,
+            client=client,
+            force=force,
+            catalog=catalog,
+        )
+
+
+def _push_subject_to_drive_locked(
+    *,
+    data_dir: Path,
+    subject_id: str,
+    client: DriveClient | None = None,
+    force: bool = False,
+    catalog: Catalog,
+) -> dict:
     subject = catalog.get_subject(subject_id)
     if not subject:
         raise DriveSetupError("Das Fach wurde nicht gefunden.")
@@ -198,6 +220,11 @@ def push_subject_to_drive(
 def accept_drive_version(*, data_dir: Path, subject_id: str, client: DriveClient | None = None, catalog: Catalog | None = None) -> dict:
     if catalog is None:
         catalog = Catalog(data_dir)
+    with catalog.subject_lock(subject_id):
+        return _accept_drive_version_locked(data_dir=data_dir, subject_id=subject_id, client=client, catalog=catalog)
+
+
+def _accept_drive_version_locked(*, data_dir: Path, subject_id: str, client: DriveClient | None = None, catalog: Catalog) -> dict:
     subject = catalog.get_subject(subject_id)
     if not subject:
         raise DriveSetupError("Das Fach wurde nicht gefunden.")
@@ -226,54 +253,56 @@ def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None, cat
     client = client or DriveClient(data_dir / "credentials")
     checked = imported = conflicts = errors = 0
 
-    for subject in catalog.list_subjects():
-        sync = subject.get("drive_sync") or {}
-        file_id = sync.get("drive_file_id")
-        if not file_id:
-            continue
-        checked += 1
-        try:
-            remote_metadata = client.get_file_metadata(file_id)
-            remote_fingerprint = _drive_fingerprint(remote_metadata)
-            if remote_fingerprint == sync.get("last_drive_fingerprint"):
+    for subject_summary in catalog.list_subjects():
+        with catalog.subject_lock(subject_summary["id"]):
+            subject = catalog.get_subject(subject_summary["id"]) or subject_summary
+            sync = subject.get("drive_sync") or {}
+            file_id = sync.get("drive_file_id")
+            if not file_id:
                 continue
-            if sync.get("sync_status") in {UPLOADING, CONFLICT}:
+            checked += 1
+            try:
+                remote_metadata = client.get_file_metadata(file_id)
+                remote_fingerprint = _drive_fingerprint(remote_metadata)
+                if remote_fingerprint == sync.get("last_drive_fingerprint"):
+                    continue
+                if sync.get("sync_status") in {UPLOADING, CONFLICT, ERROR}:
+                    catalog.update_drive_sync(
+                        subject["id"],
+                        {
+                            "sync_status": CONFLICT,
+                            "last_sync_error": "Drive-Datei wurde geaendert, waehrend lokal ein nicht abgeschlossener Stand existiert.",
+                            "remote_drive_fingerprint": remote_fingerprint,
+                            "last_sync_attempt_at": _now(),
+                        },
+                    )
+                    conflicts += 1
+                    continue
+
+                cache_path = data_dir / "drive_cache" / f"{file_id}.pdf"
+                client.download_file(file_id, cache_path)
+                current_path = catalog.subject_dir(subject["id"]) / "current.pdf"
+                current_path.parent.mkdir(parents=True, exist_ok=True)
+                _archive_local_current(catalog.subject_dir(subject["id"]), current_path)
+                shutil.copy2(cache_path, current_path)
+                metadata = _sync_metadata_from_drive(remote_metadata, sync.get("archive_folder_id", ""))
+                metadata["sync_status"] = DRIVE_NEW
+                catalog.update_drive_sync(subject["id"], metadata, current_pages=_page_count(current_path))
+                imported += 1
+            except DriveFileNotFoundError:
                 catalog.update_drive_sync(
                     subject["id"],
                     {
-                        "sync_status": CONFLICT,
-                        "last_sync_error": "Drive-Datei wurde geaendert, waehrend lokal ein nicht abgeschlossener Stand existiert.",
-                        "remote_drive_fingerprint": remote_fingerprint,
+                        "sync_status": UNMAPPED,
+                        "drive_file_id": "",
+                        "last_sync_error": "Drive-Datei wurde gelöscht oder ist nicht mehr erreichbar.",
                         "last_sync_attempt_at": _now(),
                     },
                 )
-                conflicts += 1
-                continue
-
-            cache_path = data_dir / "drive_cache" / f"{file_id}.pdf"
-            client.download_file(file_id, cache_path)
-            current_path = catalog.subject_dir(subject["id"]) / "current.pdf"
-            current_path.parent.mkdir(parents=True, exist_ok=True)
-            _archive_local_current(catalog.subject_dir(subject["id"]), current_path)
-            shutil.copy2(cache_path, current_path)
-            metadata = _sync_metadata_from_drive(remote_metadata, sync.get("archive_folder_id", ""))
-            metadata["sync_status"] = DRIVE_NEW
-            catalog.update_drive_sync(subject["id"], metadata, current_pages=_page_count(current_path))
-            imported += 1
-        except DriveFileNotFoundError:
-            catalog.update_drive_sync(
-                subject["id"],
-                {
-                    "sync_status": UNMAPPED,
-                    "drive_file_id": "",
-                    "last_sync_error": "Drive-Datei wurde gelöscht oder ist nicht mehr erreichbar.",
-                    "last_sync_attempt_at": _now(),
-                },
-            )
-            errors += 1
-        except Exception as exc:
-            errors += 1
-            catalog.set_sync_status(subject["id"], ERROR, str(exc))
+                errors += 1
+            except Exception as exc:
+                errors += 1
+                catalog.set_sync_status(subject["id"], ERROR, str(exc))
 
     return {"checked": checked, "imported": imported, "conflicts": conflicts, "errors": errors}
 
@@ -295,39 +324,42 @@ def sync_local_folder(*, data_dir: Path, root_path: str, catalog: Catalog | None
         relative = file_path.relative_to(root)
         subject_title = _local_subject_title(relative)
         subject = catalog.find_or_create_subject(title=subject_title, code="")
-        stat = file_path.stat()
-        fingerprint = f"{stat.st_size}:{stat.st_mtime_ns}"
+        with catalog.subject_lock(subject["id"]):
+            subject = catalog.get_subject(subject["id"]) or subject
+            stat = file_path.stat()
+            fingerprint = f"{stat.st_size}:{stat.st_mtime_ns}"
 
-        if subject.get("drive", {}).get("fingerprint") == fingerprint:
-            skipped += 1
-            continue
+            existing_sync = subject.get("drive_sync") or subject.get("drive", {})
+            if existing_sync.get("last_drive_fingerprint") == fingerprint or existing_sync.get("fingerprint") == fingerprint:
+                skipped += 1
+                continue
 
-        cache_path = cache_dir / "local" / relative
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(file_path, cache_path)
+            cache_path = cache_dir / "local" / relative
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_path, cache_path)
 
-        subject_dir = catalog.subject_dir(subject["id"])
-        current_path = subject_dir / "current.pdf"
-        current_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cache_path, current_path)
+            subject_dir = catalog.subject_dir(subject["id"])
+            current_path = subject_dir / "current.pdf"
+            current_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cache_path, current_path)
 
-        catalog.update_drive_subject(
-            subject["id"],
-            {
-                "source": "local",
-                "name": file_path.name,
-                "folder_path": str(relative.parent),
-                "local_source_path": str(file_path),
-                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
-                "size": str(stat.st_size),
-                "fingerprint": fingerprint,
-                "synced_at": sync_started_at,
-                "cache_path": str(cache_path.relative_to(data_dir)),
-            },
-            current_pages=_page_count(current_path),
-        )
-        catalog.add_collection_import_if_missing(subject["id"], current_path, file_path.name)
-        imported += 1
+            catalog.update_drive_subject(
+                subject["id"],
+                {
+                    "source": "local",
+                    "name": file_path.name,
+                    "folder_path": str(relative.parent),
+                    "local_source_path": str(file_path),
+                    "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                    "size": str(stat.st_size),
+                    "fingerprint": fingerprint,
+                    "synced_at": sync_started_at,
+                    "cache_path": str(cache_path.relative_to(data_dir)),
+                },
+                current_pages=_page_count(current_path),
+            )
+            catalog.add_collection_import_if_missing(subject["id"], current_path, file_path.name)
+            imported += 1
 
     config = load_drive_config(data_dir)
     config.update(
@@ -443,8 +475,8 @@ def _first_parent(metadata: dict) -> str:
 
 def _archive_name(filename: str) -> str:
     path = Path(filename)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return f"{path.stem}-{timestamp}{path.suffix or '.pdf'}"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    return f"{path.stem}-{timestamp}-{secrets.token_hex(4)}{path.suffix or '.pdf'}"
 
 
 def _archive_local_current(subject_dir: Path, current_path: Path) -> None:
