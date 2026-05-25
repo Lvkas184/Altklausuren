@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from pypdf import PdfReader, PdfWriter
 
 from drive_sync import CONFLICT, DRIVE_NEW, SYNCED, poll_drive_changes, push_subject_to_drive, sync_drive_folder
-from drive_sync import _select_print_collections
+from drive_sync import select_print_collections
 from drive_sync import _subject_title
 from storage import Catalog
 
@@ -115,26 +115,26 @@ class DriveSyncTest(unittest.TestCase):
             "Mathe 1 - Mündliche Protokolle",
         )
 
-    def test_select_print_collections_prefers_non_reverse_per_subject(self):
+    def testselect_print_collections_prefers_non_reverse_per_subject(self):
         files = [
             {"folder_path": "Drive/Mathe/Mathe 1/Klausuren", "name": "DRUCK_Mathe_I_reverse.pdf"},
             {"folder_path": "Drive/Mathe/Mathe 1/Klausuren", "name": "DRUCK_Mathe_I.pdf"},
             {"folder_path": "Drive/Recht/Privatrechtliche Übung (PÜ)", "name": "PÜ_DRUCK.pdf"},
         ]
 
-        selected = _select_print_collections(files, "root")
+        selected = select_print_collections(files, "root")
 
         self.assertEqual(len(selected), 2)
         self.assertIn("DRUCK_Mathe_I.pdf", {file["name"] for file in selected})
         self.assertIn("PÜ_DRUCK.pdf", {file["name"] for file in selected})
 
-    def test_select_print_collections_accepts_merged_pdfs(self):
+    def testselect_print_collections_accepts_merged_pdfs(self):
         files = [
             {"folder_path": "Drive/Recht/Urheberrecht (Master)/PDF", "name": "merged.pdf"},
             {"folder_path": "Drive/Recht/Vertragsgestaltung im IT-Bereich/PDF", "name": "merged.pdf"},
         ]
 
-        selected = _select_print_collections(files, "root")
+        selected = select_print_collections(files, "root")
 
         self.assertEqual(len(selected), 2)
         self.assertEqual(
@@ -142,13 +142,13 @@ class DriveSyncTest(unittest.TestCase):
             {_subject_title(file, "root") for file in selected},
         )
 
-    def test_select_print_collections_prefers_druck_over_merged_for_same_subject(self):
+    def testselect_print_collections_prefers_druck_over_merged_for_same_subject(self):
         files = [
             {"folder_path": "Drive/Recht/Privatrechtliche Übung (PÜ)", "name": "merged.pdf"},
             {"folder_path": "Drive/Recht/Privatrechtliche Übung (PÜ)", "name": "PÜ_DRUCK.pdf"},
         ]
 
-        selected = _select_print_collections(files, "root")
+        selected = select_print_collections(files, "root")
 
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0]["name"], "PÜ_DRUCK.pdf")

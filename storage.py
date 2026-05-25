@@ -11,6 +11,17 @@ from pathlib import Path
 from typing import Iterator
 
 
+PROTO_CONTRIBUTION_CAP_PER_SESSION = 500
+_SUBJECT_ID_RE = re.compile(r"^[a-z0-9-]+$")
+_SAFE_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+_SAFE_COLUMN_DEF_RE = re.compile(r"^[a-z0-9_ '(),]+$", re.IGNORECASE)
+
+KIND_PROTO_DEFAULT = "Gedächtnisprotokoll"
+KIND_COLLECTION_IMPORT = "Sammlungsimport"
+
+_MIGRATIONS_DONE: set[Path] = set()
+
+
 class Catalog:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -18,27 +29,30 @@ class Catalog:
         self.db_path = data_dir / "altklausuren.sqlite3"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
-        self._migrate_json_catalog()
-        self._migrate_subjects_without_entries()
-        self._migrate_add_no_cover()
-        self._migrate_add_deckblatt_pages()
-        self._migrate_add_print_mode()
+        if self.db_path not in _MIGRATIONS_DONE:
+            self._migrate_json_catalog()
+            self._migrate_subjects_without_entries()
+            self._migrate_add_no_cover()
+            self._migrate_add_deckblatt_pages()
+            self._migrate_add_print_mode()
+            self._migrate_kind_umlauts()
+            _MIGRATIONS_DONE.add(self.db_path)
 
     def list_subjects(self) -> list[dict]:
         with self._connect() as db:
             rows = db.execute("select * from subjects order by lower(title)").fetchall()
-        return [self._subject_from_row(row) for row in rows]
+            return [self._subject_from_row(row, db=db) for row in rows]
 
     def get_subject(self, subject_id: str) -> dict | None:
         with self._connect() as db:
             row = db.execute("select * from subjects where id = ?", (subject_id,)).fetchone()
-        return self._subject_from_row(row) if row else None
+            return self._subject_from_row(row, db=db) if row else None
 
     def find_or_create_subject(self, title: str, code: str = "") -> dict:
         with self._connect() as db:
             row = db.execute("select * from subjects where lower(title) = lower(?)", (title,)).fetchone()
-        if row:
-            return self._subject_from_row(row)
+            if row:
+                return self._subject_from_row(row, db=db)
         return self.create_subject(title=title, code=code)
 
     def create_subject(self, title: str, code: str = "") -> dict:
@@ -142,17 +156,6 @@ class Catalog:
             db.commit()
         self._audit("submission_deleted", subject_id, {"submission_id": submission_id})
 
-    def reorder_submissions(self, subject_id: str, ordered_ids: list[str]) -> None:
-        with self._connect() as db:
-            for index, submission_id in enumerate(ordered_ids, start=1):
-                db.execute(
-                    "update submissions set sort_order = ?, updated_at = ? where subject_id = ? and id = ?",
-                    (index, _now(), subject_id, submission_id),
-                )
-            db.execute("update subjects set updated_at = ? where id = ?", (_now(), subject_id))
-            db.commit()
-        self._audit("submissions_reordered", subject_id, {"ordered_ids": ordered_ids})
-
     def set_current_pages(self, subject_id: str, current_pages: int) -> None:
         with self._connect() as db:
             db.execute(
@@ -216,20 +219,24 @@ class Catalog:
         return self.get_subject(subject_id)
 
     def subject_dir(self, subject_id: str) -> Path:
+        if not _SUBJECT_ID_RE.match(subject_id):
+            raise ValueError(f"invalid subject_id: {subject_id!r}")
         return self.data_dir / "subjects" / subject_id
 
-    def _subject_from_row(self, row: sqlite3.Row) -> dict:
+    def _subject_from_row(self, row: sqlite3.Row, db: sqlite3.Connection | None = None) -> dict:
         subject = dict(row)
-        with self._connect() as db:
-            submissions = db.execute(
-                "select * from submissions where subject_id = ? order by sort_order, added_at, id",
-                (subject["id"],),
-            ).fetchall()
-            sync = db.execute("select * from drive_sync where subject_id = ?", (subject["id"],)).fetchone()
-            proto_sessions = db.execute(
-                "select * from proto_sessions where subject_id = ? order by created_at desc",
-                (subject["id"],),
-            ).fetchall()
+        if db is None:
+            with self._connect() as new_db:
+                return self._subject_from_row(row, db=new_db)
+        submissions = db.execute(
+            "select * from submissions where subject_id = ? order by sort_order, added_at, id",
+            (subject["id"],),
+        ).fetchall()
+        sync = db.execute("select * from drive_sync where subject_id = ?", (subject["id"],)).fetchone()
+        proto_sessions = db.execute(
+            "select * from proto_sessions where subject_id = ? order by created_at desc",
+            (subject["id"],),
+        ).fetchall()
         subject["submissions"] = [_submission_from_row(submission) for submission in submissions]
         subject["drive_sync"] = _drive_sync_from_row(sync) if sync else {}
         subject["drive"] = subject["drive_sync"]
@@ -462,6 +469,10 @@ class Catalog:
         )
 
     def _ensure_column(self, db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        if not _SAFE_IDENT_RE.match(table) or not _SAFE_IDENT_RE.match(column):
+            raise ValueError(f"unsafe identifier: table={table!r}, column={column!r}")
+        if not _SAFE_COLUMN_DEF_RE.match(definition):
+            raise ValueError(f"unsafe column definition: {definition!r}")
         columns = {row["name"] for row in db.execute(f"pragma table_info({table})").fetchall()}
         if column not in columns:
             db.execute(f"alter table {table} add column {column} {definition}")
@@ -481,7 +492,7 @@ class Catalog:
         except Exception:
             pages = 0
         self.add_submission(subject_id, {
-            "kind": "Importierte Sammlung",
+            "kind": KIND_COLLECTION_IMPORT,
             "notes": "Beim Import automatisch erstellt.",
             "original_filename": filename,
             "stored_upload": str(stored_path.relative_to(subject_dir)),
@@ -566,7 +577,8 @@ class Catalog:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def upsert_proto_contribution(self, session_id: str, contributor_token: str, text: str) -> dict:
+    def upsert_proto_contribution(self, session_id: str, contributor_token: str, text: str) -> dict | None:
+        """Upsert a contribution; returns None if the per-session cap is hit on a fresh insert."""
         import secrets
         with self._connect() as db:
             row = db.execute(
@@ -581,6 +593,12 @@ class Catalog:
                 )
                 contrib_id = row["id"]
             else:
+                count = db.execute(
+                    "select count(*) from proto_contributions where session_id = ?",
+                    (session_id,),
+                ).fetchone()[0]
+                if count >= PROTO_CONTRIBUTION_CAP_PER_SESSION:
+                    return None
                 contrib_id = "pc-" + secrets.token_hex(8)
                 db.execute(
                     "insert into proto_contributions (id, session_id, contributor_token, text, created_at, updated_at) values (?,?,?,?,?,?)",
@@ -644,6 +662,18 @@ class Catalog:
             if "print_mode" not in cols:
                 db.execute("alter table subjects add column print_mode text not null default 'duplex'")
                 db.commit()
+
+    def _migrate_kind_umlauts(self) -> None:
+        with self._connect() as db:
+            db.execute(
+                "update submissions set kind = ? where kind = ?",
+                (KIND_PROTO_DEFAULT, "Gedaechtnisprotokoll"),
+            )
+            db.execute(
+                "update submissions set kind = ? where kind in (?, ?)",
+                (KIND_COLLECTION_IMPORT, "Importierte Sammlung", "Importierte DRUCK-Sammlung"),
+            )
+            db.commit()
 
     def get_setting(self, key: str, default: str = "") -> str:
         with self._connect() as db:

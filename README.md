@@ -9,9 +9,13 @@ Lokale Web-App fuer das Referat Altklausuren. Der erste Workflow ist umgesetzt:
 - bestehende Sammlung ohne altes Deckblatt uebernehmen
 - neues Deckblatt mit aktuellem Stand erzeugen
 - aktualisierte Sammlung als `current.pdf` speichern und downloadbar machen
-- Drive-aehnliche Uebersicht ueber alle Sammlungen
+- Einzelseiten-Version `single.pdf` als Haupt-Download (bessere Lesbarkeit am Bildschirm)
+- Drive-aehnliche Uebersicht ueber alle Sammlungen, gruppiert nach Drive-Ordnerpfad als Kategorie
 - Suche nach Fach, Modul, Semester, Datum und Notiz
 - PDF-Vorschau fuer den aktuellen druckbaren Stand
+- importierte DRUCK-Sammlung in Einzeleintraege aufteilen (`split_collection`)
+- Konfliktstatus bei Drive-Aenderungen verwerfen (`dismiss-conflict`)
+- Druckkosten-Verwaltung im Admin-Bereich (`/admin/settings`): Papier- und Tonerpreise pflegen, daraus wird die empfohlene Verkaufspreis-Stufe berechnet
 - Protokoll-Sessions: Studierende reichen Gedaechtnisprotokoll-Fragmente per QR-Code ein, Editor fuehrt sie zusammen und gibt das PDF zur Sammlung frei
 
 ## Starten
@@ -163,7 +167,7 @@ AUTH_ROLE_ADMIN_GROUPS=Vorstand,altklausuren-admin
 ADMIN_EMAILS=lukas.heinz@forum-wi.de
 SECRET_KEY=<lange-zufaellige-session-secret>
 TRUST_PROXY_HEADERS=true
-SESSION_COOKIE_SECURE=true
+PUBLIC_BASE_URL=https://altklausuren.forum-wi.de
 ALTKLAUSUREN_DATA_DIR=/var/lib/altklausuren
 ```
 
@@ -180,7 +184,7 @@ ALLOWED_GOOGLE_DOMAIN=forum-wi.de
 ADMIN_EMAILS=lukas.heinz@forum-wi.de
 SECRET_KEY=<lange-zufaellige-session-secret>
 TRUST_PROXY_HEADERS=true
-SESSION_COOKIE_SECURE=true
+PUBLIC_BASE_URL=https://altklausuren.forum-wi.de
 ALTKLAUSUREN_DATA_DIR=/var/lib/altklausuren
 ```
 
@@ -220,11 +224,12 @@ python3 -m unittest discover tests
 
 Die App schreibt nach `data/`:
 
-- `data/catalog.json`: Faecher und Eintraege
-- `data/altklausuren.sqlite3`: dauerhafte SQLite-Datenbank
-- `data/subjects/<fach>/current.pdf`: aktuelle Sammlung
+- `data/altklausuren.sqlite3`: dauerhafte SQLite-Datenbank (Live-Datenquelle)
+- `data/catalog.json`: nur Migrationsquelle für Altinstallationen — wird beim ersten Start in SQLite überführt und danach nicht mehr beschrieben
+- `data/subjects/<fach>/current.pdf`: aktuelle druckfertige Sammlung (mit Deckblatt)
+- `data/subjects/<fach>/single.pdf`: einzelseitige Variante zum Lesen am Bildschirm (Haupt-Download in der App; nicht auf Drive)
 - `data/subjects/<fach>/incoming/`: hochgeladene Originale
-- `data/subjects/<fach>/archive/`: Backups alter Sammlungen
-- `data/subjects/<fach>/exports/`: erzeugte Versionen
+- `data/subjects/<fach>/archive/`: Backups alter Sammlungen (rotiert, behält die letzten 5)
+- `data/db-backups/`: tägliche SQLite-Backups (7 Tage Rotation, optional Drive-Upload)
 
 Der Drive-Sync ist so gebaut, dass Drive-Aenderungen nicht hart geloescht werden: vor einem App-Upload wird die bisherige Drive-Datei in einen Archivordner kopiert, sofern Drive-Schreibrechte vorhanden sind.

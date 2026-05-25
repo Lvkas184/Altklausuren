@@ -38,7 +38,7 @@ Rolle wechseln = Server stoppen (`Ctrl+C`) und mit anderem Flag neu starten.
 | Klausursammlung ansehen & downloaden | ja | ja | ja |
 | Klausur hochladen | nein | ja | ja |
 | Protokoll-Session anlegen | nein | ja | ja |
-| Fach anlegen / umbenennen / loeschen | nein | nein | ja |
+| Fach anlegen / umbenennen / loeschen | nein | ja | ja |
 | Drive-Sync verwalten | nein | nein | ja |
 
 ---
@@ -137,7 +137,7 @@ oder einfach `./start.sh`.
 - **Debug-Modus:** aus → nach jeder Code-Änderung Server neu starten
 - **DB-Schema:** wird automatisch migriert beim Start (`_ensure_schema` in storage.py)
 - **Kein Autocommit:** nach jedem Write explizit `db.commit()` nötig
-- **Proto-Session-Status:** `open` → `closed` → `released` (nicht rückgängig nach release)
+- **Proto-Session-Status:** `open` ↔ `closed` → `released` (closed kann zu open zurück per Reopen-Button; release ist final)
 - **Contributor-Cookie:** `proto_contributor`, httponly, SameSite=Lax, 1 Jahr
 - **Rollen-Reihenfolge:** viewer (0) < editor (1) < admin (2), geprüft via `can(min_role)`
 - **Flask `session`-Proxy** darf in proto-Routen nicht durch lokale Variable `session` überschattet werden → lokale Variable heisst `proto_sess`

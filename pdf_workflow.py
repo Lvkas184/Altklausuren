@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import re
 import shutil
+import sys
 import zipfile
 from datetime import datetime
 from io import BytesIO
@@ -14,6 +15,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
+
+from storage import KIND_PROTO_DEFAULT
 
 
 class PdfProcessingError(Exception):
@@ -272,7 +275,8 @@ def generate_single_page_pdf(current_path: Path) -> None:
     single_path = current_path.parent / "single.pdf"
     try:
         reader = PdfReader(str(current_path))
-    except Exception:
+    except Exception as exc:
+        print(f"warn: generate_single_page_pdf konnte {current_path} nicht öffnen: {exc}", file=sys.stderr)
         return
     writer = PdfWriter()
     for page in reader.pages:
@@ -496,7 +500,8 @@ def _template_logo() -> ImageReader | None:
         with zipfile.ZipFile(template_path) as archive:
             image = archive.read("word/media/image1.png")
         return ImageReader(BytesIO(image))
-    except Exception:
+    except Exception as exc:
+        print(f"warn: _template_logo konnte Bild aus {template_path} nicht extrahieren: {exc}", file=sys.stderr)
         return None
 
 
@@ -536,7 +541,7 @@ def detect_exam_boundaries(pdf_path: Path) -> list[dict]:
             "exam_date": _extract_exam_date(block_text),
             "instructor": "",
             "solution": "unbekannt",
-            "kind": "Gedaechtnisprotokoll",
+            "kind": KIND_PROTO_DEFAULT,
             "notes": "",
             "snippet": snippet,
         })
@@ -576,7 +581,7 @@ def split_collection(
             writer.write(f)
 
         results.append({
-            "kind": group.get("kind") or "Gedaechtnisprotokoll",
+            "kind": group.get("kind") or KIND_PROTO_DEFAULT,
             "term": group.get("semester", ""),
             "exam_date": group.get("exam_date", ""),
             "instructor": group.get("instructor", ""),

@@ -11,7 +11,6 @@ from drive_client import DriveClient, DriveFileNotFoundError, DriveSetupError, e
 from storage import Catalog
 
 
-CONFIG_PATH = Path("data") / "drive_config.json"
 SYNCED = "synced"
 UPLOADING = "uploading"
 DRIVE_NEW = "drive_new"
@@ -32,11 +31,12 @@ def save_drive_config(data_dir: Path, config: dict) -> None:
     (data_dir / "drive_config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | None = None, include_all: bool = False) -> dict:
-    catalog = Catalog(data_dir)
+def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | None = None, include_all: bool = False, catalog: Catalog | None = None) -> dict:
+    if catalog is None:
+        catalog = Catalog(data_dir)
     client = client or DriveClient(data_dir / "credentials")
     source_files = client.list_pdfs_recursive(root_url)
-    files = source_files if include_all else _select_print_collections(source_files, root_url)
+    files = source_files if include_all else select_print_collections(source_files, root_url)
 
     imported = 0
     skipped = 0
@@ -123,8 +123,10 @@ def push_subject_to_drive(
     subject_id: str,
     client: DriveClient | None = None,
     force: bool = False,
+    catalog: Catalog | None = None,
 ) -> dict:
-    catalog = Catalog(data_dir)
+    if catalog is None:
+        catalog = Catalog(data_dir)
     subject = catalog.get_subject(subject_id)
     if not subject:
         raise DriveSetupError("Das Fach wurde nicht gefunden.")
@@ -141,8 +143,7 @@ def push_subject_to_drive(
         catalog.set_sync_status(subject_id, ERROR, "Es gibt keine lokale current.pdf für dieses Fach.")
         return {"status": ERROR, "pushed": False}
 
-    single_path = subject_dir / "single.pdf"
-    push_path = single_path if single_path.exists() else current_path
+    push_path = current_path
 
     client = client or DriveClient(data_dir / "credentials")
     catalog.set_sync_status(subject_id, UPLOADING)
@@ -194,8 +195,9 @@ def push_subject_to_drive(
         raise DriveSetupError(f"Drive-Upload ist fehlgeschlagen: {exc}") from exc
 
 
-def accept_drive_version(*, data_dir: Path, subject_id: str, client: DriveClient | None = None) -> dict:
-    catalog = Catalog(data_dir)
+def accept_drive_version(*, data_dir: Path, subject_id: str, client: DriveClient | None = None, catalog: Catalog | None = None) -> dict:
+    if catalog is None:
+        catalog = Catalog(data_dir)
     subject = catalog.get_subject(subject_id)
     if not subject:
         raise DriveSetupError("Das Fach wurde nicht gefunden.")
@@ -218,8 +220,9 @@ def accept_drive_version(*, data_dir: Path, subject_id: str, client: DriveClient
     return {"status": SYNCED, "imported": True}
 
 
-def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None) -> dict:
-    catalog = Catalog(data_dir)
+def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None, catalog: Catalog | None = None) -> dict:
+    if catalog is None:
+        catalog = Catalog(data_dir)
     client = client or DriveClient(data_dir / "credentials")
     checked = imported = conflicts = errors = 0
 
@@ -275,12 +278,13 @@ def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None) -> 
     return {"checked": checked, "imported": imported, "conflicts": conflicts, "errors": errors}
 
 
-def sync_local_folder(*, data_dir: Path, root_path: str) -> dict:
+def sync_local_folder(*, data_dir: Path, root_path: str, catalog: Catalog | None = None) -> dict:
     root = Path(root_path).expanduser()
     if not root.exists() or not root.is_dir():
         raise DriveSetupError("Der lokale Drive-Ordner wurde nicht gefunden.")
 
-    catalog = Catalog(data_dir)
+    if catalog is None:
+        catalog = Catalog(data_dir)
     files = sorted(root.rglob("*.pdf"), key=lambda path: str(path).lower())
     imported = 0
     skipped = 0
@@ -363,7 +367,7 @@ def _is_technical_leaf_folder(folder_name: str, parent_name: str = "") -> bool:
     )
 
 
-def _is_print_collection(file: dict) -> bool:
+def is_print_collection(file: dict) -> bool:
     name = file.get("name", "").lower()
     folder_path = file.get("folder_path", "").lower()
     folder_parts = {part for part in folder_path.split("/") if part}
@@ -372,10 +376,10 @@ def _is_print_collection(file: dict) -> bool:
     return name.endswith(".pdf") and ("druck" in name or "merged" in name)
 
 
-def _select_print_collections(files: list[dict], root_url: str) -> list[dict]:
+def select_print_collections(files: list[dict], root_url: str) -> list[dict]:
     selected: dict[str, dict] = {}
     for file in files:
-        if not _is_print_collection(file):
+        if not is_print_collection(file):
             continue
         subject_title = _subject_title(file, root_url)
         current = selected.get(subject_title)

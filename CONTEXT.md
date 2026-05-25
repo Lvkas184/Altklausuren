@@ -9,7 +9,7 @@ In **Sprechstunden** geben Forum-Mitglieder physische Ausdrucke der Sammlungen a
 ### Rollen
 
 - **viewer** — Sprechstunden-Mitglieder: können Sammlungen ansehen, herunterladen und drucken, aber keine Einträge anlegen oder bearbeiten
-- **editor** — Referat Altklausuren: pflegt Einträge (hochladen, bearbeiten, löschen)
+- **editor** — Referat Altklausuren: pflegt Fächer und Einträge (anlegen, hochladen, bearbeiten, löschen)
 - **admin** — voller Zugriff: zusätzlich Drive-Konfiguration, Importe, Konflikte lösen
 
 Lokal (ohne `AUTH_ENABLED`) ist man immer Admin.
@@ -25,6 +25,8 @@ Eine Lehrveranstaltung (z.B. "Mathematik I"), für die Altklausuren gesammelt we
 Die erste Seite der Sammlung — wird automatisch neu generiert, sobald ein Eintrag hinzugefügt oder die Sammlung neu erzeugt wird. Enthält die Forum-WI-Kopfzeile, den Fachnamen und eine Tabelle aller Einträge (Prüfungsdatum, Dozent, Lösung), sortiert nach Datum (neueste zuerst).
 
 Der Nutzer muss das Deckblatt nie manuell anfassen — es ist immer aktuell.
+
+**Edge-Case:** Wenn eine importierte Sammlung bereits ein eingescanntes Deckblatt enthält, kann pro Fach `deckblatt_pages` (Anzahl Seiten) gesetzt werden. Dann werden diese ersten N Seiten beim Splitten/Boundary-Detection nicht als Klausur-Inhalt interpretiert. Ebenso lässt sich `no_cover` setzen, um die automatische Generierung komplett zu unterdrücken — beides ist eine bewusste Override-Option, nicht der Standard-Workflow.
 
 ### Sammlung
 Die druckfertige PDF eines Fachs — zusammengesetzt aus allen Einträgen plus Deckblatt. Im Dateisystem: `current.pdf`. Wenn jemand sagt "das Fach aktualisieren", meint er konkret: die Sammlung neu erzeugen.
@@ -67,7 +69,7 @@ Interner Code-Name: `kind`.
 ### Drive-Sync
 Hält die App und den Google-Drive-Ordner des Forums synchron, damit man auch ohne App direkt über Drive drucken kann. Drive ist kein reines Backup — es ist ein gleichwertiger Zugriffspfad.
 
-**Richtung App → Drive:** Nach jedem Upload wird die neue Sammlung automatisch nach Drive hochgeladen. Vorher wird die alte Drive-Datei in einen `Archiv`-Unterordner gesichert. Was hochgeladen wird: `single.pdf` wenn vorhanden, sonst `current.pdf`.
+**Richtung App → Drive:** Nach jedem Upload wird die neue Sammlung automatisch nach Drive hochgeladen. Vorher wird die alte Drive-Datei in einen `Archiv`-Unterordner gesichert. Was hochgeladen wird: immer `current.pdf` (die druckfertige Version mit Deckblatt). `single.pdf` ist nur das App-Download-Format und landet nie auf Drive.
 
 **Richtung Drive → App:** Ein Poll-Mechanismus erkennt externe Drive-Änderungen und lädt sie herunter (Status: `drive_new`).
 

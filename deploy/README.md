@@ -21,7 +21,12 @@ GOOGLE_REDIRECT_URI=https://altklausuren.forum-wi.de/auth/callback
 DRIVE_ROOT_FOLDER_ID=0AOnFniEMTZ8bUk9PVA
 ALLOWED_GOOGLE_DOMAIN=forum-wi.de
 ADMIN_EMAILS=lukas.heinz@forum-wi.de
+PUBLIC_BASE_URL=https://altklausuren.forum-wi.de
 ```
+
+`PUBLIC_BASE_URL` muss auf die öffentliche Domain zeigen — damit QR-Codes für Proto-Sessions auf die externe URL verweisen und nicht auf eine interne IP. Wenn `PUBLIC_BASE_URL` mit `https://` beginnt, wird `SESSION_COOKIE_SECURE` automatisch aktiviert.
+
+Beim Server-Start erscheint eine `UserWarning`, falls `AUTH_ENABLED=true` ist, aber weder `PUBLIC_BASE_URL` noch `GOOGLE_REDIRECT_URI` ein `https://`-Schema haben — das ist ein Hinweis, dass die Prod-Konfiguration unvollständig ist.
 
 Der Login erlaubt nur verifizierte `@forum-wi.de`-Konten, die den Altklausuren-Drive-Ordner lesen koennen. Drive-Schreibrechte werden als `editor` erkannt. `ADMIN_EMAILS` bekommen zusaetzlich Admin-Rechte in der App.
 

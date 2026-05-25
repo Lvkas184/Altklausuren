@@ -8,8 +8,8 @@ from pathlib import Path
 from config import load_dotenv
 from drive_client import DriveClient, DriveSetupError
 from drive_sync import (
-    _is_print_collection,
-    _select_print_collections,
+    is_print_collection,
+    select_print_collections,
     accept_drive_version,
     load_drive_config,
     poll_drive_changes,
@@ -70,7 +70,7 @@ def main() -> int:
             files = DriveClient(DATA_DIR / "credentials").list_pdfs_recursive(root_url)
             source_count = len(files)
             if not args.all:
-                files = _select_print_collections(files, root_url)
+                files = select_print_collections(files, root_url)
             print(f"{len(files)} PDFs angezeigt ({source_count} PDFs insgesamt gefunden).")
             for file in files[: args.limit]:
                 print(f"- {file.get('folder_path', '')} / {file.get('name', '')}")

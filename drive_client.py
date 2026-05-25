@@ -54,7 +54,7 @@ class DriveClient:
 
     def check_access(self, root_url: str) -> dict:
         folder_id = extract_drive_id(root_url)
-        service = self._service()
+        service = self.service()
         metadata = self._get_metadata(service, folder_id)
         return {
             "credential_mode": self.credentials_mode(),
@@ -66,20 +66,20 @@ class DriveClient:
 
     def list_pdfs_recursive(self, root_url: str) -> list[dict]:
         folder_id = extract_drive_id(root_url)
-        service = self._service()
+        service = self.service()
         root = self._get_metadata(service, folder_id)
         files: list[dict] = []
         self._walk_folder(service, folder_id, root["name"], files)
         return files
 
     def get_file_metadata(self, file_id: str) -> dict:
-        service = self._service()
+        service = self.service()
         return self._get_metadata(service, file_id)
 
     def download_file(self, file_id: str, target_path: Path) -> None:
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = self._service()
+        service = self.service()
         request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with target_path.open("wb") as output:
@@ -91,7 +91,7 @@ class DriveClient:
     def upload_new_version(self, file_id: str, source_path: Path) -> dict:
         from googleapiclient.http import MediaFileUpload
 
-        service = self._service()
+        service = self.service()
         media = MediaFileUpload(str(source_path), mimetype=PDF_MIME_TYPE, resumable=False)
         return (
             service.files()
@@ -105,7 +105,7 @@ class DriveClient:
         )
 
     def copy_to_archive_folder(self, file_id: str, archive_folder_id: str, name: str | None = None) -> dict:
-        service = self._service()
+        service = self.service()
         body = {"parents": [archive_folder_id]}
         if name:
             body["name"] = name
@@ -121,7 +121,7 @@ class DriveClient:
         )
 
     def find_or_create_archive_folder(self, parent_folder_id: str, name: str = "_Archiv") -> str:
-        service = self._service()
+        service = self.service()
         escaped_name = name.replace("'", "\\'")
         response = (
             service.files()
@@ -153,7 +153,7 @@ class DriveClient:
         return folder["id"]
 
     def list_changed_files(self, folder_id: str) -> list[dict]:
-        service = self._service()
+        service = self.service()
         response = (
             service.files()
             .list(
@@ -167,7 +167,7 @@ class DriveClient:
         )
         return response.get("files", [])
 
-    def _service(self):
+    def service(self):
         from googleapiclient.discovery import build
 
         credentials = self._credentials()

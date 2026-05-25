@@ -70,7 +70,7 @@ def _upload_to_drive(backup_path: Path, folder_id: str, data_dir: Path) -> None:
 
     try:
         client = DriveClient(data_dir / "credentials")
-        service = client._service()
+        service = client.service()
 
         media = MediaFileUpload(str(backup_path), mimetype="application/x-sqlite3", resumable=False)
         result = service.files().create(

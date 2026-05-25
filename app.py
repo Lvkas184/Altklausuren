@@ -18,12 +18,12 @@ VENDOR = Path(__file__).resolve().parent / ".vendor"
 if VENDOR.exists():
     sys.path.insert(0, str(VENDOR))
 
-from flask import Flask, abort, flash, make_response, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, abort, flash, g, make_response, redirect, render_template, request, send_file, session, url_for
 from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback, user_from_forward_auth
-from pdf_workflow import PdfProcessingError, append_submission, detect_exam_boundaries, generate_single_page_pdf, regenerate_current_pdf, rotate_archive, split_collection
+from pdf_workflow import PdfProcessingError, append_submission, detect_exam_boundaries, regenerate_current_pdf, rotate_archive, split_collection
 from drive_client import DriveSetupError
 from drive_sync import (
     CONFLICT,
@@ -40,7 +40,7 @@ from drive_sync import (
     sync_local_folder,
 )
 from config import load_dotenv
-from storage import Catalog
+from storage import Catalog, KIND_COLLECTION_IMPORT, KIND_PROTO_DEFAULT
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -71,16 +71,38 @@ app.config["SECRET_KEY"] = _secret_key
 app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-if _env_flag("SESSION_COOKIE_SECURE", default=_env_flag("AUTH_ENABLED") and os.getenv("GOOGLE_REDIRECT_URI", "").startswith("https://")):
+
+_https_deployment = (
+    os.getenv("PUBLIC_BASE_URL", "").startswith("https://")
+    or os.getenv("GOOGLE_REDIRECT_URI", "").startswith("https://")
+)
+if _env_flag("SESSION_COOKIE_SECURE", default=_env_flag("AUTH_ENABLED") and _https_deployment):
     app.config["SESSION_COOKIE_SECURE"] = True
+elif _env_flag("AUTH_ENABLED") and not _https_deployment:
+    import warnings
+    warnings.warn(
+        "AUTH_ENABLED ist aktiv, aber weder PUBLIC_BASE_URL noch GOOGLE_REDIRECT_URI sind https://. "
+        "Session-Cookies werden ohne Secure-Flag gesetzt. In Production PUBLIC_BASE_URL=https://... "
+        "oder SESSION_COOKIE_SECURE=1 setzen.",
+        stacklevel=1,
+    )
 if os.getenv("TRUST_PROXY_HEADERS", "").lower() in {"1", "true", "yes"}:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 catalog = Catalog(DATA_DIR)
 
 
-def _lan_base_url() -> str:
-    """Return the base URL using the LAN IP, even if the request came in via localhost."""
+def _public_base_url() -> str:
+    """Return the public base URL for student-facing links (session URL, QR code).
+
+    Precedence:
+      1. PUBLIC_BASE_URL env var (set this in production, e.g. https://altklausuren.forum-wi.de)
+      2. LAN IP fallback when the request came in via localhost (for local dev/demo)
+      3. request.host_url (relies on ProxyFix when behind a reverse proxy)
+    """
+    configured = os.getenv("PUBLIC_BASE_URL", "").strip()
+    if configured:
+        return configured.rstrip("/")
     host = request.host  # e.g. "127.0.0.1:5001" or "172.17.11.139:5001"
     hostname = host.split(":")[0]
     port = host.split(":")[1] if ":" in host else "5001"
@@ -107,8 +129,16 @@ app.jinja_env.globals["csrf_token"] = _csrf_token
 ROLE_LEVELS = {"viewer": 0, "editor": 1, "admin": 2}
 
 
+def _auth_config() -> AuthConfig:
+    cached = getattr(g, "auth_config", None)
+    if cached is None:
+        cached = AuthConfig.from_env()
+        g.auth_config = cached
+    return cached
+
+
 def active_role() -> str:
-    if not AuthConfig.from_env().enabled:
+    if not _auth_config().enabled:
         return "admin"
     user = current_user() or {}
     admin_emails = {
@@ -182,7 +212,7 @@ def inject_permissions():
 
 @app.before_request
 def require_login():
-    auth_config = AuthConfig.from_env()
+    auth_config = _auth_config()
     if not auth_config.enabled:
         return None
 
@@ -191,7 +221,6 @@ def require_login():
         return None
 
     if session.get("logged_out"):
-        session.pop("logged_out")
         return redirect(url_for("login", next=request.full_path))
 
     if auth_config.provider == "forward_auth":
@@ -238,7 +267,7 @@ def favicon():
 
 @app.get("/login")
 def login():
-    auth_config = AuthConfig.from_env()
+    auth_config = _auth_config()
     if not auth_config.enabled:
         flash("Login ist lokal deaktiviert.", "success")
         return redirect(url_for("index"))
@@ -273,7 +302,7 @@ def login():
 
 @app.get("/login/google")
 def google_login():
-    auth_config = AuthConfig.from_env()
+    auth_config = _auth_config()
     if not auth_config.enabled:
         flash("Login ist lokal deaktiviert.", "success")
         return redirect(url_for("index"))
@@ -290,7 +319,7 @@ def google_login():
 
 @app.get("/auth/callback")
 def auth_callback():
-    auth_config = AuthConfig.from_env()
+    auth_config = _auth_config()
     try:
         handle_callback(auth_config, request)
     except AuthError as exc:
@@ -298,6 +327,7 @@ def auth_callback():
         flash(str(exc), "error")
         return redirect(url_for("login"))
 
+    session.pop("logged_out", None)
     next_url = session.pop("login_next", "")
     if _is_safe_next(next_url):
         return redirect(next_url)
@@ -354,7 +384,7 @@ def index():
         ready_count=ready_count,
         drive_config=drive_config,
         subject_categories=_group_subjects_by_category(subjects),
-        auth_enabled=AuthConfig.from_env().enabled,
+        auth_enabled=_auth_config().enabled,
         current_user=current_user(),
     )
 
@@ -428,7 +458,7 @@ def subject_detail(subject_id: str):
         "subject_detail.html",
         subject=subject,
         max_upload_mb=UPLOAD_LIMIT_MB,
-        auth_enabled=AuthConfig.from_env().enabled,
+        auth_enabled=_auth_config().enabled,
         current_user=current_user(),
         print_price=price,
         paper_ct=paper_ct,
@@ -447,15 +477,15 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
     redirect_target = url_for("subject_detail", subject_id=subject_id) if detail_redirect and subject_id else url_for("index")
 
     if not subject_id or not catalog.get_subject(subject_id):
-        flash("Bitte waehle ein Fach aus.", "error")
+        flash("Bitte wähle ein Fach aus.", "error")
         return redirect(redirect_target)
 
     if not uploaded or not uploaded.filename:
-        flash("Bitte waehle eine PDF-Datei aus.", "error")
+        flash("Bitte wähle eine PDF-Datei aus.", "error")
         return redirect(redirect_target)
 
     if not uploaded.filename.lower().endswith(".pdf"):
-        flash("Es koennen aktuell nur PDF-Dateien verarbeitet werden.", "error")
+        flash("Es können aktuell nur PDF-Dateien verarbeitet werden.", "error")
         return redirect(redirect_target)
 
     subject_dir = catalog.subject_dir(subject_id)
@@ -466,7 +496,7 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
     uploaded.save(upload_path)
 
     metadata = {
-        "kind": request.form.get("kind", "Gedaechtnisprotokoll").strip() or "Gedaechtnisprotokoll",
+        "kind": request.form.get("kind", KIND_PROTO_DEFAULT).strip() or KIND_PROTO_DEFAULT,
         "term": request.form.get("term", "").strip(),
         "exam_date": request.form.get("exam_date", "").strip(),
         "instructor": request.form.get("instructor", "").strip(),
@@ -498,7 +528,7 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
         },
     )
     try:
-        push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id)
+        push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, catalog=catalog)
     except DriveSetupError as exc:
         flash(f"PDF wurde lokal erzeugt, aber Drive konnte nicht aktualisiert werden: {exc}", "error")
         return redirect(redirect_target)
@@ -506,7 +536,7 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
     if push_result["status"] == UNMAPPED:
         flash("PDF wurde lokal erzeugt. Dieses Fach ist noch keiner Drive-Datei zugeordnet.", "error")
     elif push_result["status"] == CONFLICT:
-        flash("PDF wurde lokal erzeugt, aber Drive wurde nicht überschrieben, weil dort eine neuere Aenderung liegt.", "error")
+        flash("PDF wurde lokal erzeugt, aber Drive wurde nicht überschrieben, weil dort eine neuere Änderung liegt.", "error")
     elif push_result["status"] == ERROR:
         flash("PDF wurde lokal erzeugt, aber Drive konnte nicht aktualisiert werden.", "error")
     else:
@@ -544,23 +574,6 @@ def delete_subject_submission(subject_id: str, submission_id: str):
     return _regenerate_and_push(subject_id, "Eintrag wurde gelöscht.")
 
 
-@app.post("/subjects/<subject_id>/submissions/reorder")
-@require_role("editor")
-def reorder_subject_submissions(subject_id: str):
-    subject = catalog.get_subject(subject_id)
-    if not subject:
-        abort(404)
-    ordered = sorted(
-        (
-            (int(request.form.get(f"sort_order_{submission['id']}", submission.get("sort_order") or 0) or 0), submission["id"])
-            for submission in subject.get("submissions", [])
-        ),
-        key=lambda item: item[0],
-    )
-    catalog.reorder_submissions(subject_id, [submission_id for _, submission_id in ordered])
-    return _regenerate_and_push(subject_id, "Reihenfolge wurde gespeichert.")
-
-
 @app.post("/subjects/<subject_id>/import-collection")
 @require_role("admin")
 def import_subject_collection(subject_id: str):
@@ -569,10 +582,10 @@ def import_subject_collection(subject_id: str):
     if not subject:
         abort(404)
     if not uploaded or not uploaded.filename:
-        flash("Bitte waehle eine bestehende DRUCK-PDF aus.", "error")
+        flash("Bitte wähle eine bestehende DRUCK-PDF aus.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
     if not uploaded.filename.lower().endswith(".pdf"):
-        flash("Es koennen aktuell nur PDF-Dateien importiert werden.", "error")
+        flash("Es können aktuell nur PDF-Dateien importiert werden.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
 
     subject_dir = catalog.subject_dir(subject_id)
@@ -602,7 +615,7 @@ def import_subject_collection(subject_id: str):
     catalog.add_submission(
         subject_id,
         {
-            "kind": "Importierte DRUCK-Sammlung",
+            "kind": KIND_COLLECTION_IMPORT,
             "term": request.form.get("term", "").strip(),
             "exam_date": request.form.get("exam_date", "").strip(),
             "instructor": request.form.get("instructor", "").strip(),
@@ -632,7 +645,7 @@ def import_subject_collection(subject_id: str):
             current_pages=pages,
         )
 
-    flash("Bestehende DRUCK-Sammlung wurde vollstaendig importiert.", "success")
+    flash("Bestehende DRUCK-Sammlung wurde vollständig importiert.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
@@ -654,7 +667,7 @@ def _regenerate_and_push(subject_id: str, success_message: str):
 
     catalog.set_current_pages(subject_id, result["current_pages"])
     try:
-        push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id)
+        push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, catalog=catalog)
     except DriveSetupError as exc:
         flash(f"{success_message} Drive konnte nicht aktualisiert werden: {exc}", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
@@ -700,7 +713,7 @@ def push_all_to_drive():
     pushed = skipped = conflicts = errors = 0
     for subject in subjects:
         try:
-            result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject["id"])
+            result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject["id"], catalog=catalog)
             status = result["status"]
             if status == SYNCED:
                 pushed += 1
@@ -736,7 +749,7 @@ def sync_drive():
         return redirect(url_for("index"))
 
     try:
-        result = sync_drive_folder(data_dir=DATA_DIR, root_url=root_url)
+        result = sync_drive_folder(data_dir=DATA_DIR, root_url=root_url, catalog=catalog)
     except DriveSetupError as exc:
         flash(str(exc), "error")
         return redirect(url_for("index"))
@@ -762,7 +775,7 @@ def sync_local_drive():
         return redirect(url_for("index"))
 
     try:
-        result = sync_local_folder(data_dir=DATA_DIR, root_path=local_root_path)
+        result = sync_local_folder(data_dir=DATA_DIR, root_path=local_root_path, catalog=catalog)
     except DriveSetupError as exc:
         flash(str(exc), "error")
         return redirect(url_for("index"))
@@ -782,7 +795,7 @@ def sync_local_drive():
 @require_role("admin")
 def accept_subject_drive_version(subject_id: str):
     try:
-        result = accept_drive_version(data_dir=DATA_DIR, subject_id=subject_id)
+        result = accept_drive_version(data_dir=DATA_DIR, subject_id=subject_id, catalog=catalog)
     except DriveSetupError as exc:
         flash(str(exc), "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
@@ -790,7 +803,7 @@ def accept_subject_drive_version(subject_id: str):
     if result["status"] == UNMAPPED:
         flash("Dieses Fach ist noch keiner Drive-Datei zugeordnet.", "error")
     else:
-        flash("Drive-Version wurde lokal uebernommen.", "success")
+        flash("Drive-Version wurde lokal übernommen.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
@@ -798,7 +811,7 @@ def accept_subject_drive_version(subject_id: str):
 @require_role("admin")
 def force_push_subject_drive_version(subject_id: str):
     try:
-        result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, force=True)
+        result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, force=True, catalog=catalog)
     except DriveSetupError as exc:
         flash(str(exc), "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
@@ -816,7 +829,7 @@ def check_subject_drive_version(subject_id: str):
     if not catalog.get_subject(subject_id):
         abort(404)
     try:
-        result = poll_drive_changes(data_dir=DATA_DIR)
+        result = poll_drive_changes(data_dir=DATA_DIR, catalog=catalog)
     except DriveSetupError as exc:
         flash(str(exc), "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
@@ -843,7 +856,7 @@ def dismiss_subject_drive_conflict(subject_id: str):
             "remote_drive_md5": "",
         },
     )
-    flash("Konfliktstatus wurde verworfen. Beim naechsten Sync wird Drive erneut geprueft.", "success")
+    flash("Konfliktstatus wurde verworfen. Beim nächsten Sync wird Drive erneut geprüft.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
@@ -874,14 +887,14 @@ def split_collection_view(subject_id: str, submission_id: str):
         except Exception:
             total = 1
         groups = [{"start_page": 1, "end_page": total, "semester": "", "exam_date": "",
-                   "instructor": "", "solution": "unbekannt", "kind": "Gedaechtnisprotokoll",
+                   "instructor": "", "solution": "unbekannt", "kind": KIND_PROTO_DEFAULT,
                    "notes": "", "snippet": ""}]
     return render_template(
         "split_collection.html",
         subject=subject,
         submission=submission,
         groups=groups,
-        auth_enabled=AuthConfig.from_env().enabled,
+        auth_enabled=_auth_config().enabled,
         current_user=current_user(),
     )
 
@@ -909,7 +922,7 @@ def split_collection_execute(subject_id: str, submission_id: str):
         groups.append({
             "start_page": int(start),
             "end_page": int(end),
-            "kind": request.form.get(f"group_kind_{i}", "Gedaechtnisprotokoll").strip(),
+            "kind": request.form.get(f"group_kind_{i}", KIND_PROTO_DEFAULT).strip(),
             "semester": request.form.get(f"group_semester_{i}", "").strip(),
             "exam_date": request.form.get(f"group_exam_date_{i}", "").strip(),
             "instructor": request.form.get(f"group_instructor_{i}", "").strip(),
@@ -943,7 +956,7 @@ def split_collection_execute(subject_id: str, submission_id: str):
 
 
 @app.post("/subjects/<subject_id>/delete")
-@require_role("admin")
+@require_role("editor")
 def delete_subject(subject_id: str):
     subject = catalog.get_subject(subject_id)
     if not subject:
@@ -960,7 +973,7 @@ def delete_subject(subject_id: str):
 
 
 @app.post("/subjects/<subject_id>/update")
-@require_role("admin")
+@require_role("editor")
 def update_subject(subject_id: str):
     if not catalog.get_subject(subject_id):
         abort(404)
@@ -1001,7 +1014,7 @@ def relink_subject_drive(subject_id: str):
             "last_sync_error": "",
         },
     )
-    flash("Drive-Verknuepfung wurde aktualisiert.", "success")
+    flash("Drive-Verknüpfung wurde aktualisiert.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
@@ -1016,7 +1029,7 @@ def print_subject(subject_id: str):
     return render_template(
         "print.html",
         subject=subject,
-        auth_enabled=AuthConfig.from_env().enabled,
+        auth_enabled=_auth_config().enabled,
         current_user=current_user(),
     )
 
@@ -1028,6 +1041,12 @@ def current_pdf(subject_id: str):
 
 @app.get("/subjects/<subject_id>/preview.pdf")
 def preview_pdf(subject_id: str):
+    subject = catalog.get_subject(subject_id)
+    if not subject:
+        abort(404)
+    single_path = catalog.subject_dir(subject_id) / "single.pdf"
+    if single_path.exists():
+        return send_file(single_path, mimetype="application/pdf", as_attachment=False)
     return _send_current_pdf(subject_id, as_attachment=False)
 
 
@@ -1075,7 +1094,6 @@ _CONTRIBUTOR_COOKIE = "proto_contributor"
 def _get_or_set_contributor_token(response=None):
     token = request.cookies.get(_CONTRIBUTOR_COOKIE)
     if not token:
-        import secrets
         token = secrets.token_urlsafe(16)
         if response:
             response.set_cookie(_CONTRIBUTOR_COOKIE, token, max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True)
@@ -1093,7 +1111,7 @@ def create_proto_session(subject_id: str):
         flash("Semester ist erforderlich.", "error")
         return redirect(url_for("subject_detail", subject_id=subject_id))
     proto_sess = catalog.create_proto_session(subject_id, semester)
-    flash(f"Session angelegt. Teilnahme-Link: {_lan_base_url()}/session/{proto_sess['token']}", "success")
+    flash(f"Session angelegt. Teilnahme-Link: {_public_base_url()}/session/{proto_sess['token']}", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
 
 
@@ -1103,12 +1121,11 @@ def proto_session_qr(token: str):
     proto_sess = catalog.get_proto_session_by_token(token)
     if not proto_sess:
         abort(404)
-    url = request.url_root.rstrip("/") + f"/session/{token}"
+    url = f"{_public_base_url()}/session/{token}"
     img = qrcode.make(url)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    from flask import send_file
     return send_file(buf, mimetype="image/png")
 
 
@@ -1134,7 +1151,6 @@ def proto_session_view(token: str):
         others=others,
     ))
     if not contributor_token:
-        import secrets
         contributor_token = secrets.token_urlsafe(16)
         resp.set_cookie(_CONTRIBUTOR_COOKIE, contributor_token, max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True)
     return resp
@@ -1142,21 +1158,20 @@ def proto_session_view(token: str):
 
 @app.post("/session/<token>/contribute")
 def proto_session_contribute(token: str):
+    if request.content_length and request.content_length > 100_000:
+        abort(413)
     proto_sess = catalog.get_proto_session_by_token(token)
     if not proto_sess or proto_sess["status"] != "open":
         return {"ok": False, "error": "session closed"}, 400
     contributor_token = request.cookies.get(_CONTRIBUTOR_COOKIE, "")
-    new_token = not contributor_token
-    if new_token:
-        import secrets as _sec
-        contributor_token = _sec.token_urlsafe(16)
+    if not contributor_token:
+        return {"ok": False, "error": "missing contributor cookie"}, 400
     text = (request.json or {}).get("text", "") if request.is_json else request.form.get("text", "")
     text = text[:50_000]
-    catalog.upsert_proto_contribution(proto_sess["id"], contributor_token, text)
-    resp = make_response({"ok": True})
-    if new_token:
-        resp.set_cookie(_CONTRIBUTOR_COOKIE, contributor_token, max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True)
-    return resp
+    result = catalog.upsert_proto_contribution(proto_sess["id"], contributor_token, text)
+    if result is None:
+        return {"ok": False, "error": "session full"}, 429
+    return {"ok": True}
 
 
 @app.post("/subjects/<subject_id>/sessions/<session_id>/semester")
@@ -1250,8 +1265,8 @@ def proto_session_moderation(subject_id: str, session_id: str):
         session=proto_sess,
         subject=subject,
         contributions=contributions,
-        session_url=f"{_lan_base_url()}/session/{proto_sess['token']}",
-        auth_enabled=AuthConfig.from_env().enabled,
+        session_url=f"{_public_base_url()}/session/{proto_sess['token']}",
+        auth_enabled=_auth_config().enabled,
         current_user=current_user(),
     )
 
@@ -1269,7 +1284,7 @@ def proto_session_editor(subject_id: str, session_id: str):
         session=proto_sess,
         subject=subject,
         contributions=contributions,
-        auth_enabled=AuthConfig.from_env().enabled,
+        auth_enabled=_auth_config().enabled,
         current_user=current_user(),
     )
 
@@ -1320,7 +1335,7 @@ def release_proto_session(subject_id: str, session_id: str):
     out_path = incoming_dir / filename
     generate_proto_pdf(content=proto_sess["editor_content"], subject=subject, session=proto_sess, out_path=out_path)
     metadata = {
-        "kind": "Gedaechtnisprotokoll",
+        "kind": KIND_PROTO_DEFAULT,
         "term": proto_sess["semester"],
         "exam_date": "",
         "instructor": "",
