@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import sys
 import os
+import hashlib
 import hmac
 import secrets
 import shutil
@@ -23,7 +24,15 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from auth import AuthConfig, AuthError, build_login_url, clear_user, current_user, handle_callback, user_from_forward_auth
-from pdf_workflow import PdfProcessingError, append_submission, detect_exam_boundaries, regenerate_current_pdf, rotate_archive, split_collection
+from pdf_workflow import (
+    PdfProcessingError,
+    append_submission,
+    detect_exam_boundaries,
+    generate_single_page_pdf,
+    regenerate_current_pdf,
+    rotate_archive,
+    split_collection,
+)
 from drive_client import DriveSetupError
 from drive_sync import (
     CONFLICT,
@@ -108,10 +117,9 @@ def _public_base_url() -> str:
     port = host.split(":")[1] if ":" in host else "5001"
     if hostname in ("127.0.0.1", "localhost", "::1"):
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            lan_ip = s.getsockname()[0]
-            s.close()
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                lan_ip = s.getsockname()[0]
         except Exception:
             lan_ip = hostname
         return f"http://{lan_ip}:{port}"
@@ -176,7 +184,8 @@ _DEFAULT_TONER_CT = 0.50
 def _recommended_price_ct(total_ct: float) -> int:
     if total_ct < 10:
         return 0
-    return math.ceil((total_ct + 20) / 20) * 20
+    base = math.ceil((total_ct + 20) / 20) * 20
+    return math.ceil(base / 50) * 50
 
 
 def _print_price(pages: int, print_mode: str, paper_ct: float, toner_ct: float) -> dict:
@@ -220,7 +229,19 @@ def require_login():
     if not auth_config.enabled:
         return None
 
-    public_endpoints = {"healthz", "favicon", "login", "google_login", "auth_callback", "logout", "continue_forward_auth_login", "static"}
+    public_endpoints = {
+        "healthz",
+        "favicon",
+        "login",
+        "google_login",
+        "auth_callback",
+        "logout",
+        "continue_forward_auth_login",
+        "proto_session_view",
+        "proto_session_qr",
+        "proto_session_contribute",
+        "static",
+    }
     if request.endpoint in public_endpoints:
         return None
 
@@ -525,6 +546,7 @@ def _handle_submission_upload(subject_id: str, *, detail_redirect: bool):
                 strip_uploaded_cover=strip_uploaded_cover,
             )
         except PdfProcessingError as exc:
+            upload_path.unlink(missing_ok=True)
             flash(str(exc), "error")
             return redirect(redirect_target)
 
@@ -641,9 +663,11 @@ def import_subject_collection(subject_id: str):
         try:
             pages = len(PdfReader(str(upload_path)).pages)
         except Exception:
+            upload_path.unlink(missing_ok=True)
             flash("Die importierte Datei konnte nicht als PDF gelesen werden.", "error")
             return redirect(url_for("subject_detail", subject_id=subject_id))
         if pages == 0:
+            upload_path.unlink(missing_ok=True)
             flash("Die importierte PDF enthält keine Seiten.", "error")
             return redirect(url_for("subject_detail", subject_id=subject_id))
 
@@ -657,6 +681,7 @@ def import_subject_collection(subject_id: str):
             )
             rotate_archive(archive_dir)
         shutil.copy2(upload_path, current_path)
+        generate_single_page_pdf(current_path)
 
         catalog.add_submission(
             subject_id,
@@ -709,6 +734,8 @@ def _regenerate_and_push(subject_id: str, success_message: str, rollback=None, *
     subject = catalog.get_subject(subject_id)
     if not subject:
         abort(404)
+    current_path = catalog.subject_dir(subject_id) / "current.pdf"
+    previous_fingerprint = _file_sha256(current_path)
     try:
         result = regenerate_current_pdf(subject=subject, subject_dir=catalog.subject_dir(subject_id))
     except PdfProcessingError as exc:
@@ -718,6 +745,16 @@ def _regenerate_and_push(subject_id: str, success_message: str, rollback=None, *
         return redirect(url_for("subject_detail", subject_id=subject_id))
 
     catalog.set_current_pages(subject_id, result["current_pages"])
+    updated_subject = catalog.get_subject(subject_id) or subject
+    current_fingerprint = _file_sha256(current_path)
+    if (
+        previous_fingerprint
+        and current_fingerprint
+        and previous_fingerprint == current_fingerprint
+        and (updated_subject.get("drive_sync") or {}).get("sync_status") == SYNCED
+    ):
+        flash(f"{success_message} PDF war bereits aktuell; Drive-Upload wurde übersprungen.", "success")
+        return redirect(url_for("subject_detail", subject_id=subject_id))
     try:
         push_result = push_subject_to_drive(data_dir=DATA_DIR, subject_id=subject_id, catalog=catalog)
     except DriveSetupError as exc:
@@ -733,6 +770,16 @@ def _regenerate_and_push(subject_id: str, success_message: str, rollback=None, *
     else:
         flash(f"{success_message} Drive ist synchron.", "success")
     return redirect(url_for("subject_detail", subject_id=subject_id))
+
+
+def _file_sha256(path: Path) -> str:
+    if not path.exists():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @app.post("/drive/config")
@@ -982,11 +1029,31 @@ def split_collection_execute(subject_id: str, submission_id: str):
             flash(str(exc), "error")
             return redirect(url_for("split_collection_view", subject_id=subject_id, submission_id=submission_id))
 
+        old_submissions = list(subject.get("submissions", []))
+        generated_paths = [
+            subject_dir / sub["stored_upload"]
+            for sub in new_submissions
+            if sub.get("stored_upload")
+        ]
         catalog.delete_submission(subject_id, submission_id)
         for sub in new_submissions:
             catalog.add_submission(subject_id, sub)
 
-        return _regenerate_and_push(subject_id, f"Sammlung in {len(new_submissions)} Einträge aufgeteilt.", lock=False)
+        def rollback_split():
+            current = catalog.get_subject(subject_id)
+            for current_submission in list((current or {}).get("submissions", [])):
+                catalog.delete_submission(subject_id, current_submission["id"])
+            for old_submission in old_submissions:
+                catalog.add_submission(subject_id, old_submission)
+            for path in generated_paths:
+                path.unlink(missing_ok=True)
+
+        return _regenerate_and_push(
+            subject_id,
+            f"Sammlung in {len(new_submissions)} Einträge aufgeteilt.",
+            rollback=rollback_split,
+            lock=False,
+        )
 
 
 @app.post("/subjects/<subject_id>/delete")

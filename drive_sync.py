@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import shutil
 from datetime import datetime
@@ -9,6 +10,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from drive_client import DriveClient, DriveFileNotFoundError, DriveSetupError, extract_drive_id
+from pdf_workflow import generate_single_page_pdf
 from storage import Catalog
 
 
@@ -24,12 +26,19 @@ def load_drive_config(data_dir: Path) -> dict:
     path = data_dir / "drive_config.json"
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {"_config_error": f"drive_config.json konnte nicht gelesen werden: {exc}"}
 
 
 def save_drive_config(data_dir: Path, config: dict) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "drive_config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    clean_config = {key: value for key, value in config.items() if not key.startswith("_")}
+    path = data_dir / "drive_config.json"
+    tmp_path = data_dir / f".drive_config.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+    tmp_path.write_text(json.dumps(clean_config, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | None = None, include_all: bool = False, catalog: Catalog | None = None) -> dict:
@@ -78,6 +87,7 @@ def sync_drive_folder(*, data_dir: Path, root_url: str, client: DriveClient | No
             current_path = subject_dir / "current.pdf"
             current_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(cache_path, current_path)
+            generate_single_page_pdf(current_path)
 
             catalog.update_drive_subject(
                 subject["id"],
@@ -210,7 +220,8 @@ def _push_subject_to_drive_locked(
             },
         )
         return {"status": UNMAPPED, "pushed": False}
-    except DriveSetupError:
+    except DriveSetupError as exc:
+        catalog.set_sync_status(subject_id, ERROR, str(exc))
         raise
     except Exception as exc:
         catalog.set_sync_status(subject_id, ERROR, str(exc))
@@ -243,6 +254,7 @@ def _accept_drive_version_locked(*, data_dir: Path, subject_id: str, client: Dri
     current_path.parent.mkdir(parents=True, exist_ok=True)
     _archive_local_current(catalog.subject_dir(subject_id), current_path)
     shutil.copy2(cache_path, current_path)
+    generate_single_page_pdf(current_path)
     catalog.update_drive_sync(subject_id, _sync_metadata_from_drive(remote_metadata, sync.get("archive_folder_id", "")), current_pages=_page_count(current_path))
     return {"status": SYNCED, "imported": True}
 
@@ -285,6 +297,7 @@ def poll_drive_changes(*, data_dir: Path, client: DriveClient | None = None, cat
                 current_path.parent.mkdir(parents=True, exist_ok=True)
                 _archive_local_current(catalog.subject_dir(subject["id"]), current_path)
                 shutil.copy2(cache_path, current_path)
+                generate_single_page_pdf(current_path)
                 metadata = _sync_metadata_from_drive(remote_metadata, sync.get("archive_folder_id", ""))
                 metadata["sync_status"] = DRIVE_NEW
                 catalog.update_drive_sync(subject["id"], metadata, current_pages=_page_count(current_path))
@@ -342,6 +355,7 @@ def sync_local_folder(*, data_dir: Path, root_path: str, catalog: Catalog | None
             current_path = subject_dir / "current.pdf"
             current_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(cache_path, current_path)
+            generate_single_page_pdf(current_path)
 
             catalog.update_drive_subject(
                 subject["id"],

@@ -12,7 +12,20 @@ sys.path.insert(0, str(ROOT))
 
 from pypdf import PdfReader, PdfWriter
 
-from drive_sync import CONFLICT, DRIVE_NEW, ERROR, SYNCED, poll_drive_changes, push_subject_to_drive, sync_drive_folder, sync_local_folder
+from drive_client import DriveSetupError
+from drive_sync import (
+    CONFLICT,
+    DRIVE_NEW,
+    ERROR,
+    SYNCED,
+    accept_drive_version,
+    load_drive_config,
+    poll_drive_changes,
+    push_subject_to_drive,
+    save_drive_config,
+    sync_drive_folder,
+    sync_local_folder,
+)
 from drive_sync import select_print_collections
 from drive_sync import _subject_title
 from storage import Catalog
@@ -72,6 +85,11 @@ class FakeDriveClient:
             "md5Checksum": "new",
         }
         return dict(self.metadata[file_id])
+
+
+class FailingDriveClient(FakeDriveClient):
+    def get_file_metadata(self, file_id):
+        raise DriveSetupError("credentials missing")
 
 
 class DriveSyncTest(unittest.TestCase):
@@ -166,6 +184,7 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(subject["drive_sync"]["drive_file_id"], "file-1")
             self.assertEqual(subject["drive_sync"]["sync_status"], SYNCED)
             self.assertTrue((data_dir / "subjects" / "mathematik-i" / "current.pdf").exists())
+            self.assertTrue((data_dir / "subjects" / "mathematik-i" / "single.pdf").exists())
 
     def test_api_sync_preserves_existing_drive_config_values(self):
         with TemporaryDirectory() as temp:
@@ -178,6 +197,19 @@ class DriveSyncTest(unittest.TestCase):
             config = (data_dir / "drive_config.json").read_text(encoding="utf-8")
             self.assertIn('"local_root_path": "/drive/local"', config)
             self.assertIn('"root_url": "folder-1"', config)
+
+    def test_load_drive_config_tolerates_corrupt_json_and_save_is_atomic(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp)
+            (data_dir / "drive_config.json").write_text("{broken", encoding="utf-8")
+
+            config = load_drive_config(data_dir)
+            save_drive_config(data_dir, config | {"root_url": "folder-1"})
+            saved = load_drive_config(data_dir)
+
+            self.assertIn("_config_error", config)
+            self.assertEqual(saved["root_url"], "folder-1")
+            self.assertNotIn("_config_error", saved)
 
     def test_initial_import_accepts_druck_inside_filename(self):
         with TemporaryDirectory() as temp:
@@ -215,6 +247,30 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(updated["drive_sync"]["last_drive_fingerprint"], "new")
             self.assertEqual(len(client.archived), 1)
             self.assertEqual(len(client.uploaded), 1)
+
+    def test_push_setup_error_sets_error_status(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp)
+            catalog = Catalog(data_dir)
+            subject = catalog.create_subject("Mathematik I")
+            _make_pdf(catalog.subject_dir(subject["id"]) / "current.pdf", 1)
+            catalog.update_drive_sync(
+                subject["id"],
+                {
+                    "drive_file_id": "file-1",
+                    "drive_folder_id": "folder-1",
+                    "drive_filename": "DRUCK_Mathe_I.pdf",
+                    "last_drive_fingerprint": "old",
+                    "sync_status": SYNCED,
+                },
+            )
+
+            with self.assertRaises(DriveSetupError):
+                push_subject_to_drive(data_dir=data_dir, subject_id=subject["id"], client=FailingDriveClient())
+            updated = Catalog(data_dir).get_subject(subject["id"])
+
+            self.assertEqual(updated["drive_sync"]["sync_status"], ERROR)
+            self.assertIn("credentials missing", updated["drive_sync"]["last_sync_error"])
 
     def test_push_does_not_overwrite_when_remote_changed(self):
         with TemporaryDirectory() as temp:
@@ -295,6 +351,31 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(result["imported"], 1)
             self.assertEqual(updated["drive_sync"]["sync_status"], DRIVE_NEW)
             self.assertEqual(len(PdfReader(str(current)).pages), 2)
+            self.assertTrue((catalog.subject_dir(subject["id"]) / "single.pdf").exists())
+
+    def test_accept_drive_version_generates_single_pdf(self):
+        with TemporaryDirectory() as temp:
+            data_dir = Path(temp)
+            catalog = Catalog(data_dir)
+            subject = catalog.create_subject("Mathematik I")
+            _make_pdf(catalog.subject_dir(subject["id"]) / "current.pdf", 1)
+            catalog.update_drive_sync(
+                subject["id"],
+                {
+                    "drive_file_id": "file-1",
+                    "drive_folder_id": "folder-1",
+                    "drive_filename": "DRUCK_Mathe_I.pdf",
+                    "last_drive_fingerprint": "old",
+                    "sync_status": DRIVE_NEW,
+                },
+            )
+            client = FakeDriveClient()
+            client.download_pages = 2
+
+            result = accept_drive_version(data_dir=data_dir, subject_id=subject["id"], client=client)
+
+            self.assertEqual(result["status"], SYNCED)
+            self.assertTrue((catalog.subject_dir(subject["id"]) / "single.pdf").exists())
 
     def test_poll_does_not_overwrite_local_error_state(self):
         with TemporaryDirectory() as temp:
@@ -338,6 +419,7 @@ class DriveSyncTest(unittest.TestCase):
             self.assertEqual(first["imported"], 1)
             self.assertEqual(second["imported"], 0)
             self.assertEqual(second["skipped"], 1)
+            self.assertTrue((data_dir / "subjects" / "mathematik-i" / "single.pdf").exists())
 
 
 if __name__ == "__main__":

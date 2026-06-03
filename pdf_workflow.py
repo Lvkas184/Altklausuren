@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import os
 import re
 import secrets
 import shutil
@@ -83,6 +85,13 @@ def _ensure_a4_reader(source_path: Path) -> PdfReader:
     ):
         return reader
 
+    cache_path = _normalized_a4_cache_path(source_path)
+    if cache_path.exists():
+        try:
+            return _validate_pdf(cache_path)
+        except PdfProcessingError:
+            cache_path.unlink(missing_ok=True)
+
     import pikepdf  # optional dep, only needed for non-A4 sources
 
     with pikepdf.open(str(source_path)) as src:
@@ -137,10 +146,11 @@ def _ensure_a4_reader(source_path: Path) -> PdfReader:
                 ),
             ))
             out.pages.append(pikepdf.Page(page_dict))
-        buf = BytesIO()
-        out.save(buf)
-        buf.seek(0)
-        return PdfReader(buf)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = cache_path.with_name(f".{cache_path.name}.{secrets.token_hex(4)}.tmp")
+        out.save(tmp_path)
+        os.replace(tmp_path, cache_path)
+        return PdfReader(str(cache_path))
 
 
 def rotate_archive(archive_dir: Path, keep: int = 5) -> None:
@@ -249,6 +259,7 @@ def regenerate_current_pdf(*, subject: dict, subject_dir: Path) -> dict:
         source = _stored_upload_path(subject_dir, submissions[0])
         _validate_pdf(source)
         shutil.copy2(source, current_path)
+        generate_single_page_pdf(current_path)
         page_count = len(PdfReader(str(current_path)).pages)
         return {"current_pages": page_count, "regenerated": True, "preserved_import": True}
 
@@ -286,6 +297,9 @@ def generate_single_page_pdf(current_path: Path) -> None:
     except Exception as exc:
         print(f"warn: generate_single_page_pdf konnte {current_path} nicht öffnen: {exc}", file=sys.stderr)
         return
+    if all(float(page.mediabox.width) <= float(page.mediabox.height) for page in reader.pages):
+        shutil.copy2(current_path, single_path)
+        return
     writer = PdfWriter()
     for page in reader.pages:
         w = float(page.mediabox.width)
@@ -319,13 +333,26 @@ def generate_single_page_pdf(current_path: Path) -> None:
             writer.write(f)
 
 
+def _normalized_a4_cache_path(source_path: Path) -> Path:
+    stat = source_path.stat()
+    key = hashlib.sha256(
+        f"{source_path.resolve()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
+    ).hexdigest()
+    return source_path.parent / ".normalized_a4" / f"{key}.pdf"
+
+
 def _stored_upload_path(subject_dir: Path, submission: dict) -> Path:
     stored = submission.get("stored_upload", "")
     if not stored:
         raise PdfProcessingError("Ein Eintrag hat keine gespeicherte Upload-Datei.")
     path = Path(stored)
-    if not path.is_absolute():
-        path = subject_dir / path
+    if path.is_absolute():
+        raise PdfProcessingError(f"Die gespeicherte Upload-Datei ist kein relativer Pfad: {stored}")
+    path = subject_dir / path
+    try:
+        path.resolve().relative_to(subject_dir.resolve())
+    except ValueError as exc:
+        raise PdfProcessingError(f"Die gespeicherte Upload-Datei liegt außerhalb des Fachordners: {stored}") from exc
     if not path.exists():
         raise PdfProcessingError(f"Die gespeicherte Upload-Datei fehlt: {stored}")
     return path

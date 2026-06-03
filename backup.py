@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Tägliches Datenbankbackup für Altklausuren.
+Tägliches Datenbackup für Altklausuren.
 
 Was es tut:
-  1. Kopiert altklausuren.sqlite3 mit Zeitstempel in data/db-backups/
+  1. Erstellt ein tar.gz-Archiv mit SQLite-Backup und lokalen PDF-Daten
   2. Löscht lokale Backups die älter als KEEP_LOCAL (7) Tage sind
-  3. Lädt das Backup nach Google Drive hoch (wenn BACKUP_DRIVE_FOLDER_ID gesetzt)
+  3. Lädt das Archiv nach Google Drive hoch (wenn BACKUP_DRIVE_FOLDER_ID gesetzt)
   4. Löscht ältere Backups auf Drive (behält die neuesten KEEP_DRIVE Kopien)
 
 Verwendung:
@@ -20,9 +20,11 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+import tarfile
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 KEEP_LOCAL = 7
 KEEP_DRIVE = 7
@@ -40,8 +42,8 @@ def main() -> None:
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = backup_dir / f"altklausuren-{stamp}.sqlite3"
-    _backup_sqlite(db_path, backup_path)
+    backup_path = backup_dir / f"altklausuren-{stamp}.tar.gz"
+    _create_backup_archive(data_dir, db_path, backup_path)
     print(f"Backup erstellt: {backup_path.name} ({backup_path.stat().st_size // 1024} KB)")
 
     _rotate_local(backup_dir)
@@ -55,7 +57,7 @@ def main() -> None:
 
 
 def _rotate_local(backup_dir: Path) -> None:
-    backups = sorted(backup_dir.glob("altklausuren-*.sqlite3"))
+    backups = sorted(backup_dir.glob("altklausuren-*.tar.gz"))
     for old in backups[:-KEEP_LOCAL]:
         old.unlink()
         print(f"Lokal gelöscht: {old.name}")
@@ -65,6 +67,30 @@ def _backup_sqlite(db_path: Path, backup_path: Path) -> None:
     with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as source:
         with closing(sqlite3.connect(backup_path)) as target:
             source.backup(target)
+
+
+def _create_backup_archive(data_dir: Path, db_path: Path, backup_path: Path) -> None:
+    with TemporaryDirectory() as temp:
+        temp_dir = Path(temp)
+        sqlite_copy = temp_dir / "altklausuren.sqlite3"
+        _backup_sqlite(db_path, sqlite_copy)
+
+        with tarfile.open(backup_path, "w:gz") as archive:
+            archive.add(sqlite_copy, arcname="altklausuren.sqlite3")
+
+            subjects_dir = data_dir / "subjects"
+            if subjects_dir.exists():
+                archive.add(subjects_dir, arcname="subjects", filter=_backup_tar_filter)
+
+            for json_path in sorted(data_dir.glob("*.json")):
+                archive.add(json_path, arcname=json_path.name, filter=_backup_tar_filter)
+
+
+def _backup_tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    excluded = {"drive_cache", "credentials", "db-backups"}
+    if any(part in excluded for part in Path(info.name).parts):
+        return None
+    return info
 
 
 def _upload_to_drive(backup_path: Path, folder_id: str, data_dir: Path) -> None:
@@ -79,7 +105,7 @@ def _upload_to_drive(backup_path: Path, folder_id: str, data_dir: Path) -> None:
         client = DriveClient(data_dir / "credentials")
         service = client.service()
 
-        media = MediaFileUpload(str(backup_path), mimetype="application/x-sqlite3", resumable=False)
+        media = MediaFileUpload(str(backup_path), mimetype="application/gzip", resumable=False)
         result = service.files().create(
             body={"name": backup_path.name, "parents": [folder_id]},
             media_body=media,

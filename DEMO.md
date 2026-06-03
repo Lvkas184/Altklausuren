@@ -11,7 +11,9 @@ cd /Users/lukas184/Altklausuren/Altklausuren
 ./start.sh
 ```
 
-Die App läuft dann auf **http://172.17.11.139:5001** (IP steht beim Start in der Konsole, falls du in einem anderen Netzwerk bist).
+Die App läuft dann auf **http://127.0.0.1:5001** auf dem Demo-Rechner.
+Für Handy/QR-Code-Demo die LAN-Adresse aus der Konsole verwenden, z.B. `http://172.17.104.44:5001`.
+Die konkrete IP kann sich je nach Netzwerk ändern; maßgeblich ist die Zeile `Running on http://...:5001` beim Start.
 
 Die echten Daten liegen in `data/` (im selben Verzeichnis wie der Code).
 
@@ -26,6 +28,7 @@ Um einen eingeloggten Nutzer zu simulieren, Server mit Flag starten:
 ```bash
 ./start.sh --viewer    # Nur lesen, keine Bearbeitungsmöglichkeiten
 ./start.sh --editor    # Klausuren hochladen, Sessions verwalten
+./start.sh --admin     # Simulierter eingeloggter Admin mit Auth-Anzeige
 ./start.sh             # Kein Auth – direkt voller Admin-Zugriff
 ```
 

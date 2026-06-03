@@ -122,6 +122,31 @@ class AppRoutesTest(unittest.TestCase):
                 self.assertEqual(len(PdfReader(str(current)).pages), 2)
                 self.assertEqual(updated["current_pages"], 2)
                 self.assertTrue(updated["submissions"][0]["collection_import"])
+                self.assertTrue((app_module.catalog.subject_dir(subject["id"]) / "single.pdf").exists())
+            finally:
+                app_module.catalog = original_catalog
+
+    def test_invalid_pdf_upload_is_removed_from_incoming(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                client = app_module.app.test_client()
+
+                response = client.post(
+                    f"/subjects/{subject['id']}/submissions",
+                    data={
+                        "pdf": (BytesIO(b"not a pdf"), "broken.pdf"),
+                        "csrf_token": _csrf(client),
+                    },
+                    content_type="multipart/form-data",
+                    follow_redirects=False,
+                )
+
+                incoming = app_module.catalog.subject_dir(subject["id"]) / "incoming"
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(list(incoming.glob("*.pdf")), [])
             finally:
                 app_module.catalog = original_catalog
 
@@ -294,6 +319,57 @@ class AppRoutesTest(unittest.TestCase):
             finally:
                 app_module.catalog = original_catalog
 
+    def test_regenerate_skips_drive_push_when_pdf_is_unchanged_and_synced(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            original_push = app_module.push_subject_to_drive
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                subject_dir = app_module.catalog.subject_dir(subject["id"])
+                upload = subject_dir / "incoming" / "upload.pdf"
+                _make_pdf(upload, 1)
+                submission = app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Altklausur",
+                        "term": "WiSe 2024/25",
+                        "stored_upload": "incoming/upload.pdf",
+                        "added_pages": 1,
+                    },
+                )
+                app_module.regenerate_current_pdf(
+                    subject=app_module.catalog.get_subject(subject["id"]),
+                    subject_dir=subject_dir,
+                )
+                app_module.catalog.update_drive_sync(
+                    subject["id"],
+                    {
+                        "drive_file_id": "file-1",
+                        "last_drive_fingerprint": "old",
+                        "sync_status": app_module.SYNCED,
+                    },
+                    current_pages=2,
+                )
+
+                def fail_push(**_kwargs):
+                    raise AssertionError("unchanged regenerate should not push to Drive")
+
+                app_module.push_subject_to_drive = fail_push
+                client = app_module.app.test_client()
+                response = client.post(
+                    f"/subjects/{subject['id']}/regenerate",
+                    data={"csrf_token": _csrf(client)},
+                    follow_redirects=True,
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("Drive-Upload wurde", response.get_data(as_text=True))
+                self.assertIsNotNone(app_module.catalog.get_submission(subject["id"], submission["id"]))
+            finally:
+                app_module.push_subject_to_drive = original_push
+                app_module.catalog = original_catalog
+
     def test_release_proto_session_rolls_back_when_regeneration_fails(self):
         with TemporaryDirectory() as temp:
             original_catalog = app_module.catalog
@@ -336,6 +412,104 @@ class AppRoutesTest(unittest.TestCase):
             finally:
                 app_module.regenerate_current_pdf = original_regenerate
                 app_module.catalog = original_catalog
+
+    def test_split_collection_rolls_back_when_regeneration_fails(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            original_regenerate = app_module.regenerate_current_pdf
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                subject_dir = app_module.catalog.subject_dir(subject["id"])
+                upload = subject_dir / "incoming" / "druck.pdf"
+                _make_pdf(upload, 2)
+                _make_pdf(subject_dir / "current.pdf", 2)
+                submission = app_module.catalog.add_submission(
+                    subject["id"],
+                    {
+                        "kind": "Sammlungsimport",
+                        "stored_upload": "incoming/druck.pdf",
+                        "collection_import": True,
+                        "added_pages": 2,
+                        "current_pages": 2,
+                    },
+                )
+
+                def fail_regenerate(**_kwargs):
+                    raise app_module.PdfProcessingError("Regeneration fehlgeschlagen")
+
+                app_module.regenerate_current_pdf = fail_regenerate
+                client = app_module.app.test_client()
+                response = client.post(
+                    f"/subjects/{subject['id']}/submissions/{submission['id']}/split",
+                    data={
+                        "group_start_0": "1",
+                        "group_end_0": "1",
+                        "group_kind_0": "Gedächtnisprotokoll",
+                        "group_start_1": "2",
+                        "group_end_1": "2",
+                        "group_kind_1": "Altklausur",
+                        "csrf_token": _csrf(client),
+                    },
+                    follow_redirects=False,
+                )
+                updated = app_module.catalog.get_subject(subject["id"])
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(len(updated["submissions"]), 1)
+                self.assertEqual(updated["submissions"][0]["id"], submission["id"])
+                self.assertTrue(updated["submissions"][0]["collection_import"])
+                self.assertEqual(list((subject_dir / "incoming").glob("*split*.pdf")), [])
+            finally:
+                app_module.regenerate_current_pdf = original_regenerate
+                app_module.catalog = original_catalog
+
+    def test_proto_session_public_endpoints_work_when_auth_enabled(self):
+        with TemporaryDirectory() as temp:
+            original_catalog = app_module.catalog
+            old_env = {
+                "AUTH_ENABLED": os.environ.get("AUTH_ENABLED"),
+                "SECRET_KEY": os.environ.get("SECRET_KEY"),
+                "GOOGLE_CLIENT_ID": os.environ.get("GOOGLE_CLIENT_ID"),
+                "GOOGLE_CLIENT_SECRET": os.environ.get("GOOGLE_CLIENT_SECRET"),
+                "GOOGLE_REDIRECT_URI": os.environ.get("GOOGLE_REDIRECT_URI"),
+                "DRIVE_ROOT_FOLDER_ID": os.environ.get("DRIVE_ROOT_FOLDER_ID"),
+                "PUBLIC_BASE_URL": os.environ.get("PUBLIC_BASE_URL"),
+            }
+            try:
+                app_module.catalog = Catalog(Path(temp))
+                os.environ["AUTH_ENABLED"] = "true"
+                os.environ["SECRET_KEY"] = "test-secret"
+                os.environ["GOOGLE_CLIENT_ID"] = "client-id"
+                os.environ["GOOGLE_CLIENT_SECRET"] = "client-secret"
+                os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost/auth/callback"
+                os.environ["DRIVE_ROOT_FOLDER_ID"] = "folder-id"
+                os.environ["PUBLIC_BASE_URL"] = "http://example.test"
+                subject = app_module.catalog.create_subject("Mathematik 1", "M1")
+                proto_session = app_module.catalog.create_proto_session(subject["id"], "SoSe 2026")
+                client = app_module.app.test_client()
+
+                page = client.get(f"/session/{proto_session['token']}")
+                qr = client.get(f"/session/{proto_session['token']}/qr.png")
+                contribution = client.post(
+                    f"/session/{proto_session['token']}/contribute",
+                    json={"text": "Aufgabe 1"},
+                )
+                moderation = client.get(f"/subjects/{subject['id']}/sessions/{proto_session['id']}")
+
+                self.assertEqual(page.status_code, 200)
+                self.assertEqual(qr.status_code, 200)
+                self.assertEqual(contribution.status_code, 200)
+                self.assertEqual(app_module.catalog.get_proto_contributions(proto_session["id"])[0]["text"], "Aufgabe 1")
+                self.assertEqual(moderation.status_code, 302)
+                self.assertIn("/login", moderation.headers["Location"])
+            finally:
+                app_module.catalog = original_catalog
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
 
     def test_viewer_cannot_create_subject(self):
         with TemporaryDirectory() as temp:

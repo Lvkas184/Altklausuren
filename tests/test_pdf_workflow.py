@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from pypdf import PdfReader, PdfWriter
 
-from pdf_workflow import append_submission, _draw_exam_table
+from pdf_workflow import PdfProcessingError, append_submission, generate_single_page_pdf, regenerate_current_pdf, _draw_exam_table, _ensure_a4_reader
 
 
 def _make_pdf(path: Path, pages: int) -> None:
@@ -122,6 +122,85 @@ class PdfWorkflowTest(unittest.TestCase):
             reader = PdfReader(str(subject_dir / "current.pdf"))
             self.assertEqual(len(reader.pages), 2)
             self.assertEqual(result["current_pages"], 2)
+
+    def test_preserved_collection_import_generates_single_pdf(self):
+        with TemporaryDirectory() as temp:
+            subject_dir = Path(temp)
+            incoming = subject_dir / "incoming"
+            incoming.mkdir()
+            upload = incoming / "druck.pdf"
+            _make_pdf(upload, 2)
+
+            subject = {
+                "id": "mathe-1",
+                "slug": "mathe-1",
+                "title": "Mathematik 1",
+                "code": "M1",
+                "submissions": [
+                    {
+                        "kind": "Sammlungsimport",
+                        "stored_upload": "incoming/druck.pdf",
+                        "collection_import": True,
+                    }
+                ],
+            }
+
+            regenerate_current_pdf(subject=subject, subject_dir=subject_dir)
+
+            self.assertTrue((subject_dir / "single.pdf").exists())
+
+    def test_stored_upload_rejects_absolute_or_escaping_paths(self):
+        with TemporaryDirectory() as temp:
+            subject_dir = Path(temp) / "subject"
+            subject_dir.mkdir()
+            outside = Path(temp) / "outside.pdf"
+            _make_pdf(outside, 1)
+            subject = {
+                "id": "mathe-1",
+                "slug": "mathe-1",
+                "title": "Mathematik 1",
+                "code": "M1",
+                "submissions": [
+                    {
+                        "kind": "Altklausur",
+                        "stored_upload": str(outside),
+                    }
+                ],
+            }
+
+            with self.assertRaises(PdfProcessingError):
+                regenerate_current_pdf(subject=subject, subject_dir=subject_dir)
+
+            subject["submissions"][0]["stored_upload"] = "../outside.pdf"
+            with self.assertRaises(PdfProcessingError):
+                regenerate_current_pdf(subject=subject, subject_dir=subject_dir)
+
+    def test_non_a4_normalization_is_cached_next_to_upload(self):
+        with TemporaryDirectory() as temp:
+            source = Path(temp) / "incoming" / "scan.pdf"
+            source.parent.mkdir()
+            writer = PdfWriter()
+            writer.add_blank_page(width=421, height=595)
+            with source.open("wb") as output:
+                writer.write(output)
+
+            first = _ensure_a4_reader(source)
+            second = _ensure_a4_reader(source)
+            cache_files = list((source.parent / ".normalized_a4").glob("*.pdf"))
+
+            self.assertEqual(len(first.pages), 1)
+            self.assertEqual(len(second.pages), 1)
+            self.assertEqual(len(cache_files), 1)
+
+    def test_single_page_pdf_copies_portrait_pdf_without_rewriting(self):
+        with TemporaryDirectory() as temp:
+            current = Path(temp) / "current.pdf"
+            _make_pdf(current, 2)
+            original_bytes = current.read_bytes()
+
+            generate_single_page_pdf(current)
+
+            self.assertEqual((Path(temp) / "single.pdf").read_bytes(), original_bytes)
 
     def test_cover_table_draws_all_entries(self):
         class RecordingCanvas:

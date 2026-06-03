@@ -79,10 +79,12 @@ HTTPS sollte danach per certbot oder vorhandener Infrastruktur fuer `altklausure
 https://altklausuren.forum-wi.de/healthz
 ```
 
-## Tägliches Datenbank-Backup
+## Tägliches Daten-Backup
 
-Das Skript `backup.py` sichert die SQLite-Datenbank täglich:
-- Lokale Kopie in `$ALTKLAUSUREN_DATA_DIR/db-backups/` (7 Tage Rotation)
+Das Skript `backup.py` erstellt täglich ein Archiv mit Datenbank und lokalen PDF-Dateien:
+- Lokale Archivdatei in `$ALTKLAUSUREN_DATA_DIR/db-backups/` (7 Tage Rotation)
+- Enthalten: konsistente Kopie von `altklausuren.sqlite3`, `subjects/` und lokale JSON-Konfigurationen wie `drive_config.json`
+- Nicht enthalten: `drive_cache/`, `credentials/` und alte Backups
 - Optionaler Upload nach Google Drive (via `BACKUP_DRIVE_FOLDER_ID`)
 
 Für den Drive-Upload einen Ordner auf drive.google.com anlegen, die Ordner-ID aus der URL kopieren und in `/etc/altklausuren/altklausuren.env` eintragen:
@@ -111,6 +113,49 @@ Manuell ausführen (z.B. zum Testen):
 
 ```bash
 systemctl start altklausuren-backup.service
+```
+
+Restore-Grundprinzip:
+
+```bash
+systemctl stop altklausuren.service altklausuren-drive-poll.timer
+tar -xzf /var/lib/altklausuren/db-backups/altklausuren-YYYYmmdd-HHMMSS.tar.gz -C /var/lib/altklausuren
+systemctl start altklausuren.service altklausuren-drive-poll.timer
+```
+
+Credentials müssen separat auf dem Server liegen bleiben bzw. neu eingespielt werden.
+
+## Authentik / Forward-Auth hinter nginx
+
+Wenn `FORWARD_AUTH_ENABLED=true` genutzt wird, muss Authentik vor der App terminieren. Die App vertraut auf `X-authentik-*` Header; nginx darf diese Header deshalb niemals ungeprüft vom Client durchreichen.
+
+Minimalregeln für Production:
+
+- Authentik schützt alle App-Routen außer öffentlichen Protokoll-Session-Links (`/session/...`) und `/healthz`, falls gewünscht.
+- nginx verwirft eingehende `X-authentik-*` Header und setzt sie nur aus der geprüften Authentik-Response.
+- Nur nginx darf Gunicorn erreichen (`--bind 127.0.0.1:8001` bleibt richtig).
+
+Kommentiertes Beispiel, die Authentik-Outpost-URLs müssen zur eigenen Installation passen:
+
+```nginx
+# location /outpost.goauthentik.io/ {
+#     proxy_pass https://authentik.example.com/outpost.goauthentik.io/;
+#     proxy_set_header Host authentik.example.com;
+#     proxy_set_header X-Original-URL $scheme://$http_host$request_uri;
+#     proxy_pass_request_body off;
+#     proxy_set_header Content-Length "";
+# }
+#
+# location / {
+#     auth_request /outpost.goauthentik.io/auth/nginx;
+#     auth_request_set $authentik_email $upstream_http_x_authentik_email;
+#     auth_request_set $authentik_name $upstream_http_x_authentik_name;
+#     auth_request_set $authentik_groups $upstream_http_x_authentik_groups;
+#     proxy_set_header X-authentik-email $authentik_email;
+#     proxy_set_header X-authentik-name $authentik_name;
+#     proxy_set_header X-authentik-groups $authentik_groups;
+#     proxy_pass http://127.0.0.1:8001;
+# }
 ```
 
 ## Server einrichten (Schritt für Schritt)

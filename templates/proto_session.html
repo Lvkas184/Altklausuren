@@ -194,7 +194,24 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({text: textarea.value}),
           });
-          status.textContent = resp.ok ? 'Gespeichert.' : 'Fehler beim Speichern.';
+          if (resp.ok) {
+            status.textContent = 'Gespeichert.';
+            return;
+          }
+          let error = '';
+          try {
+            const data = await resp.json();
+            error = data.error || '';
+          } catch {}
+          if (error === 'session closed') {
+            status.textContent = 'Diese Session ist geschlossen.';
+          } else if (error === 'session full') {
+            status.textContent = 'Diese Session ist voll.';
+          } else if (error === 'missing contributor cookie') {
+            status.textContent = 'Bitte lade die Seite neu und versuche es erneut.';
+          } else {
+            status.textContent = 'Fehler beim Speichern.';
+          }
         } catch {
           status.textContent = 'Fehler beim Speichern.';
         }
